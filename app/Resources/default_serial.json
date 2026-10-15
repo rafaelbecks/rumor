@@ -1,0 +1,13 @@
+{
+  "drone": 55,
+  "port": "",
+  "baud": 9600,
+  "debug": false,
+  "waveform": "sine",
+  "quantize": "pentatonic",
+  "input": [0, 1023],
+  "destinations": [
+    { "parameter": "chord.spread", "min": 0, "max": 1 },
+    { "parameter": "pitch", "min": 40, "max": 96 }
+  ]
+}
