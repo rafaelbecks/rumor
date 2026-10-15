@@ -406,6 +406,21 @@ void PaulXStretchPanel::refreshFromEngine() {
   syncing_ = false;
 }
 
+void PaulXStretchPanel::syncSerialDrivenSliders() {
+  const bool serialOpen = processor_.isSerialConnected();
+  syncing_ = true;
+  for (auto& row : sliders_) {
+    const bool locked = serialOpen && processor_.isSerialDrivingPx(row->paramId);
+    row->slider.setEnabled(!locked);
+    row->slider.setAlpha(locked ? 0.55f : 1.0f);
+    if (!locked) continue;
+    float v = 0.0f;
+    if (processor_.getPaulXStretchParameter(row->paramId, v))
+      row->slider.setValue(static_cast<double>(v), juce::dontSendNotification);
+  }
+  syncing_ = false;
+}
+
 void PaulXStretchPanel::timerCallback() {
   playheadLabel_.setText(
       U8("Playhead: ") + juce::String(processor_.paulXStretchPlayheadPercent() * 100.0, 1) +
@@ -415,6 +430,7 @@ void PaulXStretchPanel::timerCallback() {
       juce::dontSendNotification);
   if (sourceWaveform_ != nullptr)
     sourceWaveform_->setPlayhead(static_cast<float>(processor_.paulXStretchPlayheadPercent()));
+  syncSerialDrivenSliders();
 }
 
 void PaulXStretchPanel::pushSlider(SliderRow& row) {

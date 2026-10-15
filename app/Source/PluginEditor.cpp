@@ -68,6 +68,17 @@ void setupCompactSlider(juce::Slider& s, double minV, double maxV, double interv
   s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
 }
 
+void setupCompactEdit(juce::TextEditor& e, const juce::String& placeholder = {}) {
+  e.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x14ffffff));
+  e.setColour(juce::TextEditor::textColourId, kText);
+  e.setColour(juce::TextEditor::outlineColourId, kGlassStroke);
+  e.setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.55f));
+  e.setColour(juce::TextEditor::highlightedTextColourId, kText);
+  e.setJustification(juce::Justification::centred);
+  e.setInputRestrictions(24, "0123456789.-+eE");
+  if (placeholder.isNotEmpty()) e.setTextToShowWhenEmpty(placeholder, kMuted);
+}
+
 /** Thin track + soft blue fill + white pill thumb (Atelier-like). */
 class AtelierLookAndFeel : public juce::LookAndFeel_V4 {
  public:
@@ -326,10 +337,10 @@ UmbralAudioProcessorEditor::DestinationRow::DestinationRow()
   ccSlider.setNumDecimalPlacesToDisplay(0);
   ccSlider.setValue(1, juce::dontSendNotification);
   addAndMakeVisible(ccSlider);
-  setupCompactSlider(minSlider, -16000.0, 16000.0, 0.001);
-  setupCompactSlider(maxSlider, -16000.0, 16000.0, 0.001);
-  addAndMakeVisible(minSlider);
-  addAndMakeVisible(maxSlider);
+  setupCompactEdit(minEdit, "min");
+  setupCompactEdit(maxEdit, "max");
+  addAndMakeVisible(minEdit);
+  addAndMakeVisible(maxEdit);
   addAndMakeVisible(invertToggle);
   removeButton.addListener(this);
   addAndMakeVisible(removeButton);
@@ -344,17 +355,8 @@ void UmbralAudioProcessorEditor::DestinationRow::applyDefaultRangeForSelection()
   ccSlider.setVisible(isCc);
   float lo = 0.0f, hi = 1.0f;
   glow::serialDestinationDefaultRange(dest, lo, hi);
-  float limLo = 0.0f, limHi = 1.0f;
-  glow::serialDestinationLimits(dest, limLo, limHi);
-  const double step =
-      (dest == glow::SerialDestination::Waveform || dest == glow::SerialDestination::Pitch ||
-       dest == glow::SerialDestination::MidiCc)
-          ? 0.01
-          : (limHi > 100.0f ? 1.0 : 0.001);
-  minSlider.setRange(limLo, limHi, step);
-  maxSlider.setRange(limLo, limHi, step);
-  minSlider.setValue(lo, juce::dontSendNotification);
-  maxSlider.setValue(hi, juce::dontSendNotification);
+  minEdit.setText(juce::String(lo, 4), false);
+  maxEdit.setText(juce::String(hi, 4), false);
   resized();
 }
 
@@ -367,9 +369,9 @@ void UmbralAudioProcessorEditor::DestinationRow::resized() {
     ccSlider.setBounds(r.removeFromLeft(56));
     r.removeFromLeft(4);
   }
-  minSlider.setBounds(r.removeFromLeft(90));
+  minEdit.setBounds(r.removeFromLeft(72));
   r.removeFromLeft(4);
-  maxSlider.setBounds(r.removeFromLeft(90));
+  maxEdit.setBounds(r.removeFromLeft(72));
   r.removeFromLeft(4);
   invertToggle.setBounds(r.removeFromLeft(44));
   r.removeFromLeft(4);
@@ -588,18 +590,18 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   serialPanel_.addAndMakeVisible(portBox_);
   serialPanel_.addAndMakeVisible(baudBox_);
   serialPanel_.addAndMakeVisible(midiOutBox_);
-  serialPanel_.addAndMakeVisible(inputLowSlider_);
-  serialPanel_.addAndMakeVisible(inputHighSlider_);
+  serialPanel_.addAndMakeVisible(inputLowEdit_);
+  serialPanel_.addAndMakeVisible(inputHighEdit_);
   serialPanel_.addAndMakeVisible(destList_);
   baudBox_.addItemList({"9600", "19200", "38400", "57600", "115200"}, 1);
   baudBox_.setSelectedId(1, juce::dontSendNotification);
   midiOutBox_.addListener(this);
-  setupCompactSlider(inputLowSlider_, 0, 1000000, 1);
-  setupCompactSlider(inputHighSlider_, 0, 1000000, 1);
-  inputLowSlider_.setValue(4, juce::dontSendNotification);
-  inputHighSlider_.setValue(16, juce::dontSendNotification);
+  setupCompactEdit(inputLowEdit_, "lo");
+  setupCompactEdit(inputHighEdit_, "hi");
+  inputLowEdit_.setText("4", false);
+  inputHighEdit_.setText("16", false);
 
-  debugFilter_.setTextToShowWhenEmpty(U8("grep ej. RAW/"), kMuted);
+  debugFilter_.setTextToShowWhenEmpty(U8("ej. chord.spread, px.freq_shift"), kMuted);
   debugFilter_.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x44000000));
   debugFilter_.setColour(juce::TextEditor::textColourId, kText);
   debugFilter_.setColour(juce::TextEditor::outlineColourId, juce::Colour(0x33ffffff));
@@ -883,9 +885,9 @@ void UmbralAudioProcessorEditor::resized() {
     serial.removeFromTop(4);
     auto s2 = serial.removeFromTop(kRowH);
     inputLabel_.setBounds(s2.removeFromLeft(52));
-    inputLowSlider_.setBounds(s2.removeFromLeft(100));
+    inputLowEdit_.setBounds(s2.removeFromLeft(64));
     s2.removeFromLeft(4);
-    inputHighSlider_.setBounds(s2.removeFromLeft(100));
+    inputHighEdit_.setBounds(s2.removeFromLeft(64));
     s2.removeFromLeft(8);
     debugToggle_.setBounds(s2.removeFromLeft(70));
     serial.removeFromTop(4);
@@ -1030,18 +1032,8 @@ void UmbralAudioProcessorEditor::addDestinationRow(const glow::SerialRoute& rout
   row->ccLabel.setVisible(isCc);
   row->ccSlider.setVisible(isCc);
   row->ccSlider.setValue(route.midiCc, juce::dontSendNotification);
-  float limLo = 0.0f, limHi = 1.0f;
-  glow::serialDestinationLimits(route.destination, limLo, limHi);
-  const double step =
-      (route.destination == glow::SerialDestination::Waveform ||
-       route.destination == glow::SerialDestination::Pitch ||
-       route.destination == glow::SerialDestination::MidiCc)
-          ? 0.01
-          : (limHi > 100.0f ? 1.0 : 0.001);
-  row->minSlider.setRange(limLo, limHi, step);
-  row->maxSlider.setRange(limLo, limHi, step);
-  row->minSlider.setValue(route.min, juce::dontSendNotification);
-  row->maxSlider.setValue(route.max, juce::dontSendNotification);
+  row->minEdit.setText(juce::String(route.min, 4), false);
+  row->maxEdit.setText(juce::String(route.max, 4), false);
   row->invertToggle.setToggleState(route.invert, juce::dontSendNotification);
   row->onRemove = [this](DestinationRow* victim) {
     destList_.removeChildComponent(victim);
@@ -1079,8 +1071,8 @@ void UmbralAudioProcessorEditor::loadConfigIntoUi(const glow::SerialConfig& cfg)
         quantBox_.setSelectedItemIndex(i, juce::dontSendNotification);
         break;
       }
-  inputLowSlider_.setValue(cfg.inputLow, juce::dontSendNotification);
-  inputHighSlider_.setValue(cfg.inputHigh, juce::dontSendNotification);
+  inputLowEdit_.setText(juce::String(cfg.inputLow), false);
+  inputHighEdit_.setText(juce::String(cfg.inputHigh), false);
   destRows_.clear();
   destList_.removeAllChildren();
   for (const auto& route : cfg.destinations) addDestinationRow(route);
@@ -1099,16 +1091,16 @@ glow::SerialConfig UmbralAudioProcessorEditor::buildConfigFromUi() const {
   cfg.waveform = waveBox_.getText().toStdString();
   cfg.quantize = quantBox_.getText().toStdString();
   if (*cfg.quantize == "off") cfg.quantize.reset();
-  cfg.inputLow = static_cast<int>(inputLowSlider_.getValue());
-  cfg.inputHigh = static_cast<int>(inputHighSlider_.getValue());
+  cfg.inputLow = inputLowEdit_.getText().trim().getIntValue();
+  cfg.inputHigh = inputHighEdit_.getText().trim().getIntValue();
   cfg.debug = debugToggle_.getToggleState();
   for (const auto& row : destRows_) {
     glow::SerialDestination dest = glow::SerialDestination::Pitch;
     glow::serialDestinationFromName(row->parameterBox.getText().toStdString(), dest);
     glow::SerialRoute route;
     route.destination = dest;
-    route.min = static_cast<float>(row->minSlider.getValue());
-    route.max = static_cast<float>(row->maxSlider.getValue());
+    route.min = row->minEdit.getText().trim().getFloatValue();
+    route.max = row->maxEdit.getText().trim().getFloatValue();
     route.invert = row->invertToggle.getToggleState();
     route.midiCc = juce::jlimit(0, 127, juce::roundToInt(row->ccSlider.getValue()));
     cfg.destinations.push_back(route);
@@ -1225,11 +1217,38 @@ void UmbralAudioProcessorEditor::appendDebugChunk(const juce::String& chunk) {
 }
 
 void UmbralAudioProcessorEditor::rebuildDebugView() {
-  const auto filter = debugFilter_.getText().trim();
+  // Comma-separated key filters (e.g. "chord.spread, px.freq_shift") keep only matching key=value
+  // tokens on each line. Empty filter shows the full line.
+  juce::StringArray terms;
+  for (const auto& t : juce::StringArray::fromTokens(debugFilter_.getText(), ",", "")) {
+    const auto trimmed = t.trim();
+    if (trimmed.isNotEmpty()) terms.add(trimmed);
+  }
+
   juce::String out;
   for (const auto& line : debugHistory_) {
-    if (filter.isNotEmpty() && !line.containsIgnoreCase(filter)) continue;
-    out << line << "\n";
+    if (terms.isEmpty()) {
+      out << line << "\n";
+      continue;
+    }
+
+    juce::StringArray kept;
+    for (const auto& token : juce::StringArray::fromTokens(line, " \t", "")) {
+      if (token.isEmpty()) continue;
+      const int eq = token.indexOfChar('=');
+      if (eq <= 0) continue;
+      const auto key = token.substring(0, eq);
+      bool match = false;
+      for (const auto& term : terms) {
+        if (key.containsIgnoreCase(term) || term.containsIgnoreCase(key)) {
+          match = true;
+          break;
+        }
+      }
+      if (match) kept.add(token);
+    }
+    if (kept.isEmpty()) continue;
+    out << kept.joinIntoString(" ") << "\n";
   }
   debugConsole_.setText(out, false);
   debugConsole_.moveCaretToEnd();
@@ -1429,7 +1448,8 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
       debugHistory_.clear();
     }
     resized();
-    setStatus(on ? U8("Debug on \xe2\x80\x94 filtro ej. RAW/") : U8("Debug off."));
+    setStatus(on ? U8("Debug on \xe2\x80\x94 filtro ej. chord.spread, px.freq_shift")
+                 : U8("Debug off."));
     return;
   }
   if (button == &applyButton_) applyFromUi(false);

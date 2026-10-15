@@ -107,19 +107,18 @@ UmbralAudioProcessor::UmbralAudioProcessor()
       std::lock_guard<std::mutex> lock(configMutex_);
       cfg = serialConfig_;
     }
+    // Space-separated key=value tokens (filterable by key, e.g. "chord.spread, px.freq_shift").
     juce::String line;
-    line << "RAW/ [" << static_cast<int>(juce::Time::getMillisecondCounter() % 1000000)
-         << "] raw=" << raw << " smoothed=" << juce::String(smoothed, 1);
+    line << "raw=" << raw << " smoothed=" << juce::String(smoothed, 1);
     for (const auto& route : cfg.destinations) {
       float lo = route.min, hi = route.max;
       if (route.invert) std::swap(lo, hi);
       const float mapped = glow::serialMap(smoothed, static_cast<float>(cfg.inputLow),
                                            static_cast<float>(cfg.inputHigh), lo, hi);
-      line << "  " << glow::serialDestinationName(route.destination);
+      juce::String key = glow::serialDestinationName(route.destination);
       if (route.destination == glow::SerialDestination::MidiCc)
-        line << "[" << route.midiCc << "]";
-      line << "=" << juce::String(mapped, 2);
-      if (route.invert) line << "(inv)";
+        key << "[" << route.midiCc << "]";
+      line << " " << key << "=" << juce::String(mapped, 3);
     }
     appendDebugLine(line);
   });
@@ -650,6 +649,20 @@ float UmbralAudioProcessor::getParameterTarget(glow::ParameterID id) const {
 
 bool UmbralAudioProcessor::isSerialDriving(glow::ParameterID id) const {
   return serialDrives_[static_cast<size_t>(id)].load();
+}
+
+bool UmbralAudioProcessor::isSerialDrivingPx(const juce::String& paramId) const {
+  if (!serialPitch_.isOpen() || paramId.isEmpty()) return false;
+  glow::SerialConfig cfg;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    cfg = serialConfig_;
+  }
+  for (const auto& route : cfg.destinations) {
+    if (!glow::serialDestinationIsPaulXStretch(route.destination)) continue;
+    if (paramId == glow::serialDestinationName(route.destination)) return true;
+  }
+  return false;
 }
 
 bool UmbralAudioProcessor::isSerialDrivingPitch() const { return serialDrivesPitch_.load(); }

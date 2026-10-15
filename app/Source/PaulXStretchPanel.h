@@ -73,6 +73,7 @@ class PaulXStretchPanel : public juce::Component,
   void sliderValueChanged(juce::Slider* slider) override;
 
   void chooseFile();
+  void syncSerialDrivenSliders();
   void pushSlider(SliderRow& row);
   void pushToggle(ToggleRow& row);
   void addSlider(const juce::String& id, const juce::String& label, double minV, double maxV,

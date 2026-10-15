@@ -52,8 +52,8 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
     juce::ComboBox parameterBox;
     juce::Label ccLabel;
     juce::Slider ccSlider;
-    juce::Slider minSlider;
-    juce::Slider maxSlider;
+    juce::TextEditor minEdit;  // typed output range lo
+    juce::TextEditor maxEdit;  // typed output range hi
     juce::ToggleButton invertToggle;
     juce::TextButton removeButton;
   };
@@ -155,8 +155,8 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   juce::Label midiOutLabel_;
   juce::ComboBox midiOutBox_;
   juce::Label inputLabel_;
-  juce::Slider inputLowSlider_;
-  juce::Slider inputHighSlider_;
+  juce::TextEditor inputLowEdit_;   // serial ADC window lo (typed)
+  juce::TextEditor inputHighEdit_;  // serial ADC window hi (typed)
   juce::Label destSectionLabel_;
   juce::Component destList_;
   std::vector<std::unique_ptr<DestinationRow>> destRows_;

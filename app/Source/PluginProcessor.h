@@ -78,6 +78,8 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   float getParameterTarget(glow::ParameterID id) const;
 
   bool isSerialDriving(glow::ParameterID id) const;
+  /** True when an open serial route owns this PaulXStretch param id (e.g. "px.stretch"). */
+  bool isSerialDrivingPx(const juce::String& paramId) const;
   bool isSerialDrivingPitch() const;
   bool isSerialPitchLive() const;
   float getDisplayedPitchMidi() const;
