@@ -154,10 +154,14 @@ jobs:
           | Windows | \`RUMOR-windows.zip\` |
           | Linux / Raspberry Pi (aarch64) | \`RUMOR-linux-aarch64.zip\` |
           "
+          # Clear any previous "latest" release/tag (remote + local) so recreate is clean.
           gh release delete latest --yes 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
+          git tag -d latest 2>/dev/null || true
+
           mapfile -t FILES < <(find release-assets -name 'RUMOR-*.zip' | sort)
           gh release create latest "${FILES[@]}" \
+            --target "${GITHUB_SHA}" \
             --title "Latest CI builds" \
             --notes "$NOTES" \
             --latest \
