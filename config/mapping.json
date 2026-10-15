@@ -1,0 +1,129 @@
+{
+  "description": "Matches GLOW custom hardware + serial_to_midi.py → IAC Driver Bus 5. Same CC numbers (pot0–3=20–23, joyX/Y=24/25, joyBtn=26, ldrRange=43). Destinations are synth params instead of luminode/layout.",
+
+  "audio": {
+    "sampleRate": 48000,
+    "bufferSize": 128,
+    "maxGrains": 32,
+    "device": ""
+  },
+
+  "midi": {
+    "channel": 1,
+    "device": "IAC Driver Bus 5",
+
+    "notes": {
+      "noteOn": true,
+      "noteOff": true,
+      "velocity": true
+    },
+
+    "cc": {
+      "21": {
+        "parameter": "filter.resonance",
+        "min": 0.0,
+        "max": 0.95,
+        "hardware": "pot1"
+      },
+      "22": {
+        "parameter": "granular.mix",
+        "min": 0.0,
+        "max": 1.0,
+        "hardware": "pot2"
+      },
+      "23": {
+        "parameter": "folder.drive",
+        "min": 0.0,
+        "max": 1.0,
+        "hardware": "pot3"
+      },
+      "24": {
+        "parameter": "joystick.x",
+        "min": -1.0,
+        "max": 1.0,
+        "hardware": "joyX"
+      },
+      "25": {
+        "parameter": "joystick.y",
+        "min": -1.0,
+        "max": 1.0,
+        "hardware": "joyY"
+      },
+      "43": {
+        "parameter": "chord.spread",
+        "min": 0.0,
+        "max": 1.0,
+        "hardware": "ldrRange"
+      }
+    },
+
+    "buttons": {
+      "29": {
+        "action": "pitch.set",
+        "fifths": 0,
+        "hardware": "btn0"
+      },
+      "30": {
+        "action": "pitch.set",
+        "fifths": 1,
+        "hardware": "btn1"
+      },
+      "31": {
+        "action": "pitch.set",
+        "fifths": 2,
+        "hardware": "btn2"
+      },
+      "33": {
+        "action": "pitch.set",
+        "fifths": 3,
+        "hardware": "btn4"
+      },
+      "37": {
+        "action": "waveform.next",
+        "hardware": "btn8"
+      },
+      "38": {
+        "action": "scale.next",
+        "hardware": "btn9"
+      }
+    }
+  },
+
+  "joystick": {
+    "buttonCC": 26,
+    "deadzone": 0.08,
+    "smoothing": 0.15,
+    "invertX": false,
+    "invertY": true,
+
+    "banks": [
+      {
+        "name": "synth",
+        "x": {
+          "parameter": "pitch.offset",
+          "min": -1200,
+          "max": 1200
+        },
+        "y": {
+          "parameter": "filter.cutoff",
+          "min": 60,
+          "max": 12000,
+          "curve": "exp"
+        }
+      },
+      {
+        "name": "granular",
+        "x": {
+          "parameter": "granular.density",
+          "min": 1,
+          "max": 100
+        },
+        "y": {
+          "parameter": "granular.pitch",
+          "min": -12,
+          "max": 12
+        }
+      }
+    ]
+  }
+}

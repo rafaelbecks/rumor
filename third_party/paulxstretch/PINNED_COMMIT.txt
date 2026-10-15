@@ -1,0 +1,3 @@
+PINNED_COMMIT=b6175e904a445809b45b3a5ee8e18501055cd2ef
+UPSTREAM=https://github.com/essej/paulxstretch
+DATE=2026-10-14
