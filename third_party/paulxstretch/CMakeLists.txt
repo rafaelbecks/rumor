@@ -27,10 +27,11 @@ target_compile_definitions(rumor_paulxstretch_dsp
   PUBLIC
     PS_USE_PFFFT=1
     PS_USE_VDSP_FFT=0
-  PRIVATE
-    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    # PUBLIC so consumers (rumor_px_engine) don't compile juce_gui_extra with WebBrowser/GTK.
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+  PRIVATE
+    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
 )
 
 # Upstream DSP uses `#ifdef WINDOWS` (not `_WIN32`) and `M_PI` (MSVC needs _USE_MATH_DEFINES).

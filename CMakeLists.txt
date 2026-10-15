@@ -77,7 +77,14 @@ if(RUMOR_WITH_PAULXSTRETCH)
   )
   target_include_directories(rumor_px_engine PUBLIC "${RUMOR_ROOT}")
   target_link_libraries(rumor_px_engine PUBLIC rumor_paulxstretch_dsp)
-  target_compile_definitions(rumor_px_engine PUBLIC RUMOR_HAS_PAULXSTRETCH=1)
+  target_compile_definitions(rumor_px_engine
+    PUBLIC
+      RUMOR_HAS_PAULXSTRETCH=1
+      JUCE_WEB_BROWSER=0
+      JUCE_USE_CURL=0
+    PRIVATE
+      JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+  )
 endif()
 
 # --- JUCE plugin / standalone -----------------------------------------------
