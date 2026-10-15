@@ -160,12 +160,12 @@ jobs:
           git tag -d latest 2>/dev/null || true
 
           mapfile -t FILES < <(find release-assets -name 'RUMOR-*.zip' | sort)
+          # Note: --latest cannot be combined with --prerelease (API 422).
           gh release create latest "${FILES[@]}" \
             --target "${GITHUB_SHA}" \
             --title "Latest CI builds" \
             --notes "$NOTES" \
-            --latest \
-            --prerelease
+            --latest
 
       - name: Update README download section
         env:
