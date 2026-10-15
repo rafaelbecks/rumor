@@ -19,3 +19,6 @@ Pinned upstream: see `PINNED_COMMIT.txt` (essej/paulxstretch).
 9. Vendored `ps3_BufferingAudioSource` (upstream prebuffer) for realtime PX.
 10. `AInputS::openAudioFile`: set `info.nsamples` before computing
     `m_currentsample` from the active range.
+11. Windows/MSVC: define `WINDOWS`, `WIN32`, `_USE_MATH_DEFINES`, and `NOMINMAX`
+    so `globals.cpp` skips `unistd.h` and `M_PI` is available in FreeEdit /
+    BinauralBeats.

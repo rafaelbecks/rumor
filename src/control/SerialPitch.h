@@ -12,6 +12,13 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace glow {
 
 /** Default serial window: 10-bit Arduino analogRead. */
@@ -537,12 +544,18 @@ class SerialPitch {
   bool open(const std::string& path, int baud = kSerialBaudDefault);
   void close();
 
+#if defined(_WIN32)
+  bool isOpen() const { return handle_ != INVALID_HANDLE_VALUE; }
+#else
   bool isOpen() const { return fd_ >= 0; }
+#endif
   const std::string& path() const { return path_; }
   int baud() const { return baud_; }
 
  private:
   void readLoop();
+  void processIncomingBytes(const char* buf, int n, class SerialAdcParser& parser,
+                            float& smoothed, int& lastLoggedNote);
 
   PerformanceState* performance_{nullptr};
   ParameterRegistry* registry_{nullptr};
@@ -557,7 +570,11 @@ class SerialPitch {
   std::atomic<int> lastRawAdc_{-1};
   std::atomic<float> lastSmoothedAdc_{-1.0f};
   std::atomic<uint64_t> readingSeq_{0};
+#if defined(_WIN32)
+  HANDLE handle_{INVALID_HANDLE_VALUE};
+#else
   int fd_{-1};
+#endif
   int baud_{kSerialBaudDefault};
   std::string path_;
   std::atomic<bool> running_{false};

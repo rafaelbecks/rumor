@@ -33,6 +33,11 @@ target_compile_definitions(rumor_paulxstretch_dsp
     JUCE_USE_CURL=0
 )
 
+# Upstream DSP uses `#ifdef WINDOWS` (not `_WIN32`) and `M_PI` (MSVC needs _USE_MATH_DEFINES).
+if(WIN32)
+  target_compile_definitions(rumor_paulxstretch_dsp PRIVATE WINDOWS WIN32 _USE_MATH_DEFINES)
+endif()
+
 target_compile_features(rumor_paulxstretch_dsp PUBLIC cxx_std_17)
 
 target_link_libraries(rumor_paulxstretch_dsp
@@ -52,6 +57,9 @@ if(APPLE)
     -Wno-deprecated-declarations
     -Wno-float-equal
   )
+elseif(WIN32)
+  # Avoid min/max macros from windows.h colliding with std::min/max in DSP headers.
+  target_compile_definitions(rumor_paulxstretch_dsp PRIVATE NOMINMAX)
 elseif(UNIX)
   target_link_libraries(rumor_paulxstretch_dsp PUBLIC m)
   target_compile_options(rumor_paulxstretch_dsp PRIVATE -Wno-unused-parameter)
