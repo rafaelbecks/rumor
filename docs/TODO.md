@@ -23,5 +23,5 @@ Integrar un **sensor infrarrojo de movimiento PIR HC-SR501** para detectar prese
 
 ## Builds
 
-- [ ] Publicar artefactos CI (macOS `.app` + Windows `.exe` / VST3) en Releases
-- [ ] Headless Linux (Raspberry Pi) con ALSA/JACK
+- [x] Publicar artefactos CI (macOS / Windows / Linux aarch64) en Release `latest` + links en README
+- [ ] Headless Linux (Raspberry Pi) con ALSA/JACK (el job CI ARM ya intenta el Standalone)

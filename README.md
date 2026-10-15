@@ -18,7 +18,23 @@ Upstream de PaulXStretch: [essej/paulxstretch](https://github.com/essej/paulxstr
 
 ---
 
+## Descargas (última CI)
 
+Builds automáticos del Standalone. Tras cada push a `main`, CI publica el release [`latest`](https://github.com/rafaelbecks/rumor/releases/latest).
+
+<!-- RUMOR_DOWNLOADS:START -->
+| Plataforma | Descarga |
+| ---------- | -------- |
+| **macOS** | [RUMOR-macos.zip](https://github.com/rafaelbecks/rumor/releases/latest/download/RUMOR-macos.zip) |
+| **Windows** | [RUMOR-windows.zip](https://github.com/rafaelbecks/rumor/releases/latest/download/RUMOR-windows.zip) |
+| **Linux (Raspberry Pi, aarch64)** | [RUMOR-linux-aarch64.zip](https://github.com/rafaelbecks/rumor/releases/latest/download/RUMOR-linux-aarch64.zip) |
+
+Última publicación: _aún no publicada — el próximo push a `main` genera los zips_.
+
+También en [Releases → Latest](https://github.com/rafaelbecks/rumor/releases/latest).
+<!-- RUMOR_DOWNLOADS:END -->
+
+---
 
 ## Visión general del sistema
 
@@ -144,7 +160,7 @@ Requisitos: CMake ≥ 3.22, C++17. JUCE 8 en `deps/JUCE` (o FetchContent).
 | **Windows** | `[scripts/build-windows.ps1](scripts/build-windows.ps1)` | `build\Rumor_artefacts\Release\Standalone\RUMOR.exe` |
 
 
-CI: `[.github/workflows/build.yml](.github/workflows/build.yml)` (macOS + Windows).
+CI: [`.github/workflows/build.yml`](.github/workflows/build.yml) (macOS, Windows, Linux aarch64 / Pi) → publica en [Releases → Latest](https://github.com/rafaelbecks/rumor/releases/latest).
 
 ### macOS
 

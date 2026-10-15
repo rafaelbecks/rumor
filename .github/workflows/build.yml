@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   macos:
     runs-on: macos-14
@@ -19,12 +23,18 @@ jobs:
             -DRUMOR_BUILD_TESTS=ON
       - name: Build Standalone
         run: cmake --build build --target Rumor_Standalone -j3
+      - name: Package
+        run: |
+          mkdir -p dist
+          APP="$(find build -name 'RUMOR.app' -type d | head -1)"
+          test -n "$APP"
+          ditto -c -k --keepParent "$APP" dist/RUMOR-macos.zip
       - name: Upload macOS Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: rumor-macos-standalone
-          path: build/Rumor_artefacts/**/Standalone/RUMOR.app
-          if-no-files-found: warn
+          name: rumor-macos
+          path: dist/RUMOR-macos.zip
+          if-no-files-found: error
 
   windows:
     runs-on: windows-2022
@@ -38,9 +48,184 @@ jobs:
             -DRUMOR_BUILD_TESTS=ON
       - name: Build Standalone
         run: cmake --build build --config Release --target Rumor_Standalone
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $exe = Get-ChildItem -Path build -Recurse -Filter RUMOR.exe |
+            Where-Object { $_.FullName -match 'Standalone' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "RUMOR.exe not found" }
+          Compress-Archive -Path $exe.FullName -DestinationPath dist/RUMOR-windows.zip -Force
       - name: Upload Windows Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: rumor-windows-standalone
-          path: build/Rumor_artefacts/**/Standalone/RUMOR.exe
+          name: rumor-windows
+          path: dist/RUMOR-windows.zip
+          if-no-files-found: error
+
+  # Raspberry Pi 4/5 (64-bit) target
+  linux:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install JUCE Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libasound2-dev libfreetype6-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev \
+            libxrender-dev libgl1-mesa-dev libcurl4-openssl-dev \
+            libwebkit2gtk-4.1-dev
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DRUMOR_WITH_PAULXSTRETCH=ON \
+            -DRUMOR_BUILD_PLUGIN=ON \
+            -DRUMOR_BUILD_TESTS=ON
+      - name: Build Standalone
+        run: cmake --build build --target Rumor_Standalone -j$(nproc)
+      - name: Package
+        run: |
+          mkdir -p dist
+          BIN="$(find build -type f -path '*/Standalone/RUMOR' | head -1)"
+          test -n "$BIN"
+          zip -j dist/RUMOR-linux-aarch64.zip "$BIN"
+      - name: Upload Linux aarch64 Standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: rumor-linux-aarch64
+          path: dist/RUMOR-linux-aarch64.zip
           if-no-files-found: warn
+
+  publish:
+    name: Publish latest release + README links
+    needs: [macos, windows, linux]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      (needs.macos.result == 'success' || needs.windows.result == 'success' || needs.linux.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: rumor-*
+          merge-multiple: true
+
+      - name: Collect release assets
+        id: assets
+        run: |
+          mkdir -p release-assets
+          shopt -s nullglob
+          for f in artifacts/RUMOR-*.zip artifacts/*/RUMOR-*.zip; do
+            cp -f "$f" release-assets/
+          done
+          ls -la release-assets
+          count=$(find release-assets -name 'RUMOR-*.zip' | wc -l)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          test "$count" -gt 0
+
+      - name: Publish GitHub Release (tag latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Stable download URLs (always the same):
+          #   .../releases/latest/download/RUMOR-macos.zip
+          #   .../releases/latest/download/RUMOR-windows.zip
+          #   .../releases/latest/download/RUMOR-linux-aarch64.zip
+          SHORT="${GITHUB_SHA:0:7}"
+          NOTES="Automated standalone builds from \`${SHORT}\` ([workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
+
+          | Platform | Asset |
+          | -------- | ----- |
+          | macOS | \`RUMOR-macos.zip\` |
+          | Windows | \`RUMOR-windows.zip\` |
+          | Linux / Raspberry Pi (aarch64) | \`RUMOR-linux-aarch64.zip\` |
+          "
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+          mapfile -t FILES < <(find release-assets -name 'RUMOR-*.zip' | sort)
+          gh release create latest "${FILES[@]}" \
+            --title "Latest CI builds" \
+            --notes "$NOTES" \
+            --latest \
+            --prerelease
+
+      - name: Update README download section
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          python3 <<'PY'
+          import os, pathlib, datetime, re
+          repo = os.environ["REPO"]
+          sha = os.environ["SHA"]
+          run_id = os.environ["RUN_ID"]
+          server = os.environ["SERVER"]
+          short = sha[:7]
+          date = datetime.date.today().isoformat()
+          base = f"{server}/{repo}/releases/latest/download"
+          run_url = f"{server}/{repo}/actions/runs/{run_id}"
+          commit_url = f"{server}/{repo}/commit/{sha}"
+
+          present = {p.name for p in pathlib.Path("release-assets").glob("RUMOR-*.zip")}
+
+          def row(label, filename):
+              url = f"{base}/{filename}"
+              if filename in present:
+                  return f"| **{label}** | [{filename}]({url}) |"
+              return f"| **{label}** | _pending_ (not in this build) |"
+
+          block = "\n".join([
+              "<!-- RUMOR_DOWNLOADS:START -->",
+              "| Plataforma | Descarga |",
+              "| ---------- | -------- |",
+              row("macOS", "RUMOR-macos.zip"),
+              row("Windows", "RUMOR-windows.zip"),
+              row("Linux (Raspberry Pi, aarch64)", "RUMOR-linux-aarch64.zip"),
+              "",
+              f"Última publicación: `{date}` · commit [`{short}`]({commit_url}) · [CI run]({run_url})",
+              "",
+              f"También en [Releases → Latest]({server}/{repo}/releases/latest).",
+              "<!-- RUMOR_DOWNLOADS:END -->",
+          ])
+
+          readme = pathlib.Path("README.md")
+          text = readme.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r"<!-- RUMOR_DOWNLOADS:START -->.*?<!-- RUMOR_DOWNLOADS:END -->",
+              re.DOTALL,
+          )
+          if not pattern.search(text):
+              raise SystemExit("README.md missing RUMOR_DOWNLOADS markers")
+          readme.write_text(pattern.sub(block, text), encoding="utf-8")
+          print(block)
+          PY
+
+      - name: Commit README links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if git diff --staged --quiet; then
+            echo "README unchanged"
+            exit 0
+          fi
+          git commit -m "ci: update latest download links [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
