@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="920" viewBox="0 0 1400 920" fill="none">
+  <title>Rumor  diagrama de sistema</title>
+  <desc>Instalaci�n interactiva Rumor. PlastikMen = Dayton Audio resonators (par 4 ohm). Para importar en Figma.</desc>
+
+  <!-- ===== Styles (Figma: edit fills/strokes on groups) ===== -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8B939C"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5B9FD4"/>
+    </marker>
+    <marker id="arrowAudio" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#C4A35A"/>
+    </marker>
+    <marker id="arrowVideo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7AAB7E"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="920" fill="#16181A"/>
+
+  <!-- Title -->
+  <g id="Title">
+    <text x="40" y="48" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="28" font-weight="700">RUMOR</text>
+    <text x="40" y="74" fill="#9AA3AD" font-family="Inter, Helvetica, Arial, sans-serif" font-size="14">Diagrama t�cnico de sistema  umbral interactivo � audio / agua / proyecci�n</text>
+    <text x="40" y="96" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12">PlastikMen = Dayton Audio resonators (par 4 �) � App JUCE en Raspberry Pi (evoluci�n UMBRAL)</text>
+  </g>
+
+  <!-- ===== Legend ===== -->
+  <g id="Leyenda" transform="translate(980, 28)">
+    <rect x="0" y="0" width="380" height="168" rx="10" fill="#1E2226" stroke="#2C3238"/>
+    <text x="16" y="26" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="13" font-weight="600">Canales</text>
+
+    <line x1="16" y1="44" x2="44" y2="44" stroke="#B8C0C8" stroke-width="2.5"/>
+    <text x="52" y="48" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">Contacto / campo</text>
+
+    <line x1="16" y1="66" x2="44" y2="66" stroke="#8B939C" stroke-width="2.5"/>
+    <text x="52" y="70" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">Anal�gico (ADC)</text>
+
+    <line x1="16" y1="88" x2="44" y2="88" stroke="#5B9FD4" stroke-width="2.5"/>
+    <text x="52" y="92" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">USB Serial / USB Video</text>
+
+    <line x1="16" y1="110" x2="44" y2="110" stroke="#C4A35A" stroke-width="2.5"/>
+    <text x="52" y="114" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">Audio / altavoz</text>
+
+    <line x1="16" y1="132" x2="44" y2="132" stroke="#A67CB8" stroke-width="2.5" stroke-dasharray="5 4"/>
+    <text x="52" y="136" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">WebSocket / control</text>
+
+    <line x1="200" y1="44" x2="228" y2="44" stroke="#7AAB7E" stroke-width="2.5"/>
+    <text x="236" y="48" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">Vibraci�n / �ptica</text>
+
+    <line x1="200" y1="66" x2="228" y2="66" stroke="#5B9FD4" stroke-width="2.5"/>
+    <text x="236" y="70" fill="#B8C0C8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">HDMI / proyecci�n</text>
+  </g>
+
+  <!-- ===== Layer bands ===== -->
+  <g id="Capas" opacity="0.55">
+    <rect x="28" y="130" width="200" height="620" rx="12" fill="#1A1E22"/>
+    <rect x="244" y="130" width="200" height="620" rx="12" fill="#1A1E22"/>
+    <rect x="460" y="130" width="280" height="620" rx="12" fill="#1A1E22"/>
+    <rect x="756" y="130" width="280" height="620" rx="12" fill="#1A1E22"/>
+    <rect x="1052" y="220" width="312" height="530" rx="12" fill="#1A1E22"/>
+
+    <text x="128" y="154" text-anchor="middle" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">1 � ENTRADA</text>
+    <text x="344" y="154" text-anchor="middle" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">2 � MCU</text>
+    <text x="600" y="154" text-anchor="middle" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">3 � CEREBRO</text>
+    <text x="896" y="154" text-anchor="middle" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">4 � ACTUACI�N</text>
+    <text x="1208" y="244" text-anchor="middle" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">5 � LOOP VISUAL</text>
+  </g>
+
+  <!-- ===== Edges (under nodes) ===== -->
+  <g id="Enlaces" fill="none">
+    <!-- estructura � circuito -->
+    <path d="M128 290 C128 330, 128 350, 128 378" stroke="#B8C0C8" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="138" y="340" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">contacto</text>
+
+    <!-- circuito � arduino -->
+    <path d="M188 428 C240 428, 260 428, 284 428" stroke="#8B939C" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="210" y="418" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">ADC</text>
+
+    <!-- arduino � pi -->
+    <path d="M404 428 C440 428, 460 360, 500 320" stroke="#5B9FD4" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+    <text x="430" y="360" fill="#5B9FD4" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">USB Serial</text>
+
+    <!-- ws � app -->
+    <path d="M600 230 C600 250, 600 260, 600 278" stroke="#A67CB8" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text x="610" y="258" fill="#A67CB8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">WebSocket</text>
+
+    <!-- app � pi (proceso) -->
+    <path d="M520 350 C500 350, 500 380, 520 400" stroke="#8B939C" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="430" y="390" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">proceso</text>
+
+    <!-- pi � amp (audio) -->
+    <path d="M700 428 C740 428, 760 428, 796 428" stroke="#C4A35A" stroke-width="2.5" marker-end="url(#arrowAudio)"/>
+    <text x="720" y="416" fill="#C4A35A" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">Audio 3.5 mm</text>
+
+    <!-- amp � sub -->
+    <path d="M896 400 C896 360, 896 340, 896 318" stroke="#C4A35A" stroke-width="2" marker-end="url(#arrowAudio)"/>
+    <text x="906" y="360" fill="#C4A35A" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">L</text>
+
+    <!-- amp � dayton -->
+    <path d="M896 456 C896 500, 896 520, 896 538" stroke="#C4A35A" stroke-width="2" marker-end="url(#arrowAudio)"/>
+    <text x="906" y="500" fill="#C4A35A" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">R � 4 �</text>
+
+    <!-- sub � agua -->
+    <path d="M956 288 C1000 288, 1040 288, 1092 288" stroke="#7AAB7E" stroke-width="2" marker-end="url(#arrowVideo)"/>
+    <text x="1000" y="278" fill="#7AAB7E" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">vibraci�n</text>
+
+    <!-- agua � cam -->
+    <path d="M1208 318 C1208 360, 1208 380, 1208 408" stroke="#7AAB7E" stroke-width="2" marker-end="url(#arrowVideo)"/>
+    <text x="1218" y="370" fill="#7AAB7E" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">�ptica</text>
+
+    <!-- cam � pi (back) -->
+    <path d="M1092 438 C980 470, 780 500, 640 456" stroke="#5B9FD4" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowAccent)"/>
+    <text x="820" y="500" fill="#5B9FD4" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="600">USB Cam</text>
+
+    <!-- pi � proyector -->
+    <path d="M640 456 C720 560, 900 600, 1092 618" stroke="#5B9FD4" stroke-width="2" marker-end="url(#arrowAccent)"/>
+    <text x="860" y="590" fill="#5B9FD4" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">HDMI / proyecci�n</text>
+
+    <!-- pi � luz -->
+    <path d="M600 456 C600 560, 600 640, 600 678" stroke="#A67CB8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text x="610" y="640" fill="#A67CB8" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">luz (TBD)</text>
+  </g>
+
+  <!-- ===== Nodes ===== -->
+
+  <!-- Field / structure -->
+  <g id="Estructura-metalica" transform="translate(48, 210)">
+    <rect width="160" height="80" rx="10" fill="#24292E" stroke="#3A424A" stroke-width="1.5"/>
+    <!-- icon antenna/field -->
+    <circle cx="28" cy="40" r="8" stroke="#B8C0C8" stroke-width="1.5"/>
+    <circle cx="28" cy="40" r="3" fill="#B8C0C8"/>
+    <path d="M28 24v4M28 52v4M12 40h4M40 40h4" stroke="#B8C0C8" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="48" y="36" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Estructura met�lica</text>
+    <text x="48" y="54" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Umbral conductor</text>
+  </g>
+
+  <g id="Circuito-resistencias" transform="translate(48, 388)">
+    <rect width="160" height="80" rx="10" fill="#24292E" stroke="#3A424A" stroke-width="1.5"/>
+    <path d="M18 40h6l4-10 8 20 8-20 4 10h6" stroke="#B8C0C8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="48" y="36" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Resistencias serie</text>
+    <text x="48" y="54" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Divisor � ADC</text>
+  </g>
+
+  <g id="Arduino-NANO" transform="translate(284, 388)">
+    <rect width="120" height="80" rx="10" fill="#24292E" stroke="#5B9FD4" stroke-width="1.5"/>
+    <rect x="18" y="28" width="20" height="20" rx="2" stroke="#5B9FD4" stroke-width="1.4"/>
+    <path d="M24 22v6M32 22v6M24 48v6M32 48v6M12 34h6M12 42h6M38 34h6M38 42h6" stroke="#5B9FD4" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="48" y="40" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Arduino</text>
+    <text x="48" y="56" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">NANO � ADC</text>
+  </g>
+
+  <g id="Calibracion-WebSocket" transform="translate(500, 178)">
+    <rect width="200" height="52" rx="10" fill="#24292E" stroke="#A67CB8" stroke-width="1.5"/>
+    <circle cx="28" cy="26" r="5" stroke="#A67CB8" stroke-width="1.4"/>
+    <path d="M18 26a10 10 0 0120 0M22 26a6 6 0 0112 0" stroke="#A67CB8" stroke-width="1.3"/>
+    <text x="48" y="24" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Calibraci�n remota</text>
+    <text x="48" y="40" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">WebSocket server</text>
+  </g>
+
+  <g id="Rumor-JUCE-App" transform="translate(500, 288)">
+    <rect width="200" height="100" rx="10" fill="#1E2A33" stroke="#5B9FD4" stroke-width="2"/>
+    <path d="M22 36l-6 8 6 8M42 36l6 8-6 8M34 30l-4 28" stroke="#5B9FD4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="58" y="34" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="13" font-weight="700">Rumor JUCE App</text>
+    <text x="58" y="52" fill="#9AA3AD" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Lee serial � maps synth</text>
+    <text x="58" y="68" fill="#9AA3AD" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Embed PaulXStretch</text>
+    <text x="58" y="84" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">UMBRAL / granular</text>
+  </g>
+
+  <g id="Raspberry-Pi" transform="translate(500, 408)">
+    <rect width="200" height="80" rx="10" fill="#24292E" stroke="#5B9FD4" stroke-width="2"/>
+    <rect x="16" y="26" width="28" height="18" rx="2" stroke="#5B9FD4" stroke-width="1.4"/>
+    <path d="M26 44v10M20 54h12" stroke="#5B9FD4" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="56" y="38" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="13" font-weight="700">Raspberry Pi</text>
+    <text x="56" y="56" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Hub audio / video / red</text>
+  </g>
+
+  <g id="Luz" transform="translate(520, 688)">
+    <rect width="160" height="52" rx="10" fill="#24292E" stroke="#3A424A" stroke-width="1.5"/>
+    <path d="M28 18v8M20 34h16M24 26c0 6 8 6 8 0" stroke="#C4A35A" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="52" y="24" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Luz</text>
+    <text x="52" y="40" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Por definir</text>
+  </g>
+
+  <g id="PAM8610" transform="translate(796, 388)">
+    <rect width="200" height="80" rx="10" fill="#24292E" stroke="#C4A35A" stroke-width="1.5"/>
+    <path d="M18 40h6l8-12v24l8-12h6" stroke="#C4A35A" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M48 32a8 8 0 010 16" stroke="#C4A35A" stroke-width="1.3"/>
+    <text x="70" y="38" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">PAM8610</text>
+    <text x="70" y="56" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Amp. est�reo</text>
+  </g>
+
+  <g id="Subwoofer" transform="translate(816, 248)">
+    <rect width="160" height="70" rx="10" fill="#24292E" stroke="#C4A35A" stroke-width="1.5"/>
+    <circle cx="30" cy="35" r="14" stroke="#C4A35A" stroke-width="1.4"/>
+    <circle cx="30" cy="35" r="6" stroke="#C4A35A" stroke-width="1.3"/>
+    <circle cx="30" cy="35" r="2" fill="#C4A35A"/>
+    <text x="54" y="32" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Subwoofer</text>
+    <text x="54" y="48" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Excita el agua</text>
+  </g>
+
+  <g id="Dayton-Audio" transform="translate(816, 548)">
+    <rect width="160" height="70" rx="10" fill="#24292E" stroke="#C4A35A" stroke-width="1.5"/>
+    <circle cx="24" cy="35" r="10" stroke="#C4A35A" stroke-width="1.4"/>
+    <circle cx="44" cy="35" r="10" stroke="#C4A35A" stroke-width="1.4"/>
+    <text x="62" y="30" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Dayton Audio</text>
+    <text x="62" y="46" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Resonadores 4 � (par)</text>
+    <text x="62" y="60" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="9">ex PlastikMen</text>
+  </g>
+
+  <g id="Recipiente-agua" transform="translate(1092, 248)">
+    <rect width="232" height="70" rx="10" fill="#24292E" stroke="#7AAB7E" stroke-width="1.5"/>
+    <path d="M16 32c6-8 12-8 18 0s12 8 18 0" stroke="#7AAB7E" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M16 44c6-8 12-8 18 0s12 8 18 0" stroke="#7AAB7E" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="64" y="32" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Recipiente con agua</text>
+    <text x="64" y="48" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Superficie vibrante</text>
+  </g>
+
+  <g id="Camara-microscopia" transform="translate(1092, 418)">
+    <rect width="232" height="70" rx="10" fill="#24292E" stroke="#5B9FD4" stroke-width="1.5"/>
+    <path d="M14 35s5-10 16-10 16 10 16 10-5 10-16 10-16-10-16-10z" stroke="#5B9FD4" stroke-width="1.4"/>
+    <circle cx="30" cy="35" r="4" stroke="#5B9FD4" stroke-width="1.3"/>
+    <text x="56" y="32" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">C�mara microscop�a</text>
+    <text x="56" y="48" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">USB � mira el agua</text>
+  </g>
+
+  <g id="Proyector-Bianca" transform="translate(1092, 588)">
+    <rect width="232" height="70" rx="10" fill="#24292E" stroke="#5B9FD4" stroke-width="1.5"/>
+    <rect x="16" y="24" width="28" height="18" rx="2" stroke="#5B9FD4" stroke-width="1.4"/>
+    <path d="M20 50h20M30 42v8" stroke="#5B9FD4" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="56" y="32" fill="#F2F4F6" font-family="Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600">Proyector Bianca</text>
+    <text x="56" y="48" fill="#8B939C" font-family="Inter, Helvetica, Arial, sans-serif" font-size="10">Salida visual</text>
+  </g>
+
+  <!-- Footer -->
+  <g id="Footer">
+    <line x1="40" y1="860" x2="1360" y2="860" stroke="#2C3238" stroke-width="1"/>
+    <text x="40" y="886" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">Importar en Figma: File � Place image& / arrastrar SVG � grupos editables por id � texto vectorial</text>
+    <text x="1360" y="886" text-anchor="end" fill="#6E767D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11">glow-granular-synth � Rumor</text>
+  </g>
+</svg>
