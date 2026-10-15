@@ -19,6 +19,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
 
   void paint(juce::Graphics&) override;
   void resized() override;
+  void parentHierarchyChanged() override;
 
  private:
   struct GlassPanel : public juce::Component {
@@ -96,10 +97,11 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
 
   UmbralAudioProcessor& processor_;
   juce::Image background_;
+  juce::Typeface::Ptr analoGrotesk_;
   juce::Typeface::Ptr latoThin_;
   juce::Typeface::Ptr latoLight_;
   juce::Typeface::Ptr latoRegular_;
-  juce::Font titleFont_{juce::FontOptions(56.0f)};   // Lato Thin — RUMOR wordmark
+  juce::Font titleFont_{juce::FontOptions(36.0f)};  // Analo Grotesk — RUMOR wordmark
   juce::Font brandFont_{juce::FontOptions(13.0f)};   // Lato Light (UI)
   juce::Font bodyFont_{juce::FontOptions(12.5f)};    // Lato Regular
   std::unique_ptr<juce::LookAndFeel> atelierLaf_;
@@ -122,12 +124,14 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
 
   /** Outer module card (Atelier-style separated panel). */
   struct ModuleFrame : public juce::Component {
+    explicit ModuleFrame(float fillAlpha = 0.55f) : fillAlpha_(fillAlpha) {}
     void paint(juce::Graphics& g) override;
     juce::Rectangle<int> contentBounds() const;
+    float fillAlpha_{0.55f};
   };
 
-  ModuleFrame leftModule_;
-  ModuleFrame rightModule_;
+  ModuleFrame leftModule_{0.38f};   // outer shell (lighter)
+  ModuleFrame rightModule_{0.28f};  // outer shell (more open); inner panels use full glass
   juce::TabbedComponent leftTabs_{juce::TabbedButtonBar::TabsAtBottom};
   juce::TabbedComponent rightTabs_{juce::TabbedButtonBar::TabsAtBottom};
   SintePageHost sintePage_;

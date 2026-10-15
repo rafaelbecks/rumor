@@ -511,8 +511,9 @@ void UmbralAudioProcessor::applySerialConfig(const glow::SerialConfig& cfg, bool
   if (!connectSerial) {
     refreshSerialDrives();
     statusOut = serialPitch_.isOpen()
-                    ? "Ajustes aplicados (serial sigue conectado)."
-                    : "Ajustes aplicados. Conectar para abrir el puerto serial.";
+                    ? juce::String::fromUTF8("Ajustes aplicados (serial sigue conectado).")
+                    : juce::String::fromUTF8(
+                          "Ajustes aplicados. Conectar para abrir el puerto serial.");
     return;
   }
 
@@ -539,8 +540,8 @@ void UmbralAudioProcessor::applySerialConfig(const glow::SerialConfig& cfg, bool
     return;
   }
   refreshSerialDrives();
-  statusOut = "Serial conectado: " + juce::String(serialPitch_.path()) + " @ " +
-              juce::String(serialPitch_.baud());
+  statusOut = juce::String::fromUTF8("Serial conectado: ") + juce::String(serialPitch_.path()) +
+              " @ " + juce::String(serialPitch_.baud());
 }
 
 bool UmbralAudioProcessor::applyConfig(glow::SerialConfig cfg, juce::String& statusOut,
@@ -708,19 +709,20 @@ bool UmbralAudioProcessor::loadPaulXStretchSource(const juce::File& file, juce::
 #if RUMOR_HAS_PAULXSTRETCH
   std::lock_guard<std::mutex> lock(pxMutex_);
   if (pxEngine_ == nullptr) {
-    statusOut = "PaulXStretch no disponible.";
+    statusOut = juce::String::fromUTF8("PaulXStretch no disponible.");
     return false;
   }
   std::string err;
   if (!pxEngine_->loadSourceFile(file.getFullPathName().toStdString(), err)) {
-    statusOut = err.empty() ? "No se pudo cargar el audio." : juce::String(err);
+    statusOut = err.empty() ? juce::String::fromUTF8("No se pudo cargar el audio.")
+                            : juce::String(err);
     return false;
   }
-  statusOut = "Fuente PX: " + file.getFileName();
+  statusOut = juce::String::fromUTF8("Fuente PX: ") + file.getFileName();
   return true;
 #else
   juce::ignoreUnused(file);
-  statusOut = "Compilado sin PaulXStretch.";
+  statusOut = juce::String::fromUTF8("Compilado sin PaulXStretch.");
   return false;
 #endif
 }

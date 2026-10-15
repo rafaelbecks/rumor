@@ -200,7 +200,7 @@ PaulXStretchPanel::PaulXStretchPanel(UmbralAudioProcessor& processor) : processo
   title_.setColour(juce::Label::textColourId, kMuted);
   addAndMakeVisible(title_);
 
-  subtitle_.setText("misma instancia · ruteo en salida", juce::dontSendNotification);
+  subtitle_.setText(U8("misma instancia \xc2\xb7 ruteo en salida"), juce::dontSendNotification);
   subtitle_.setColour(juce::Label::textColourId, kMuted);
   addAndMakeVisible(subtitle_);
 

@@ -142,25 +142,17 @@ RUMOR/
   LICENSE              # GPL-3 cuando PaulXStretch está enlazado
 ```
 
+
+
 ### Firmware (Arduino)
 
-Sketch del umbral capacitivo: [`firmware/capacitive-sensor/`](firmware/capacitive-sensor/) — pin 4→resistencia→pin 2 + metal, Serial **9600**, `println` cada ~50 ms. Ver README ahí para cableado y librería `CapacitiveSensor`.
+Sketch del umbral capacitivo: `[firmware/capacitive-sensor/](firmware/capacitive-sensor/)` — pin 4→resistencia→pin 2 + metal, Serial **9600**, `println` cada ~50 ms. Ver README ahí para cableado y librería `CapacitiveSensor`.
 
 ### Hardware (alcantarilla)
 
-Placa limpia para láser (Ø 400 mm): [`hardware/alcantarilla/`](hardware/alcantarilla/) — `alcantarilla-metal.svg`, `.dxf` (mm) y `.glb`, más el script Python que los regenera.
+Placa limpia para láser (Ø 400 mm): `[hardware/alcantarilla/](hardware/alcantarilla/)` — `alcantarilla-metal.svg`, `.dxf` (mm) y `.glb`, más el script Python que los regenera.
 
 ---
-
-
-
-## Licencia
-
-Con **PaulXStretch habilitado** (objetivo por defecto), el binario combinado se distribuye bajo **GPL-3** (ver `[LICENSE](LICENSE)` y `[third_party/paulxstretch/LICENSE](third_party/paulxstretch/LICENSE)`).  
-Un build con `-DRUMOR_WITH_PAULXSTRETCH=OFF` excluye ese código.
-
----
-
 
 
 ## Build
@@ -169,12 +161,14 @@ Requisitos: CMake ≥ 3.22, C++17. JUCE 8 en `deps/JUCE` (symlink local) o se de
 
 Scripts listos:
 
-| Plataforma | Script | Salida típica |
-| ---------- | ------ | ------------- |
-| **macOS** | [`scripts/build-mac.sh`](scripts/build-mac.sh) | `build/Rumor_artefacts/Release/Standalone/RUMOR.app` |
-| **Windows** | [`scripts/build-windows.ps1`](scripts/build-windows.ps1) | `build\Rumor_artefacts\Release\Standalone\RUMOR.exe` |
 
-CI: [`.github/workflows/build.yml`](.github/workflows/build.yml) construye **macOS** y **Windows** en cada push/PR (artefactos descargables).
+| Plataforma  | Script                                                   | Salida típica                                        |
+| ----------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| **macOS**   | `[scripts/build-mac.sh](scripts/build-mac.sh)`           | `build/Rumor_artefacts/Release/Standalone/RUMOR.app` |
+| **Windows** | `[scripts/build-windows.ps1](scripts/build-windows.ps1)` | `build\Rumor_artefacts\Release\Standalone\RUMOR.exe` |
+
+
+CI: `[.github/workflows/build.yml](.github/workflows/build.yml)` construye **macOS** y **Windows** en cada push/PR (artefactos descargables).
 
 ### macOS
 
@@ -188,11 +182,15 @@ cmake --build build --target Rumor_Standalone -j
 open build/Rumor_artefacts/Release/Standalone/RUMOR.app
 ```
 
-| Target     | Salida                                                                    |
-| ---------- | ------------------------------------------------------------------------- |
-| Standalone | `build/Rumor_artefacts/Release/Standalone/RUMOR.app`                      |
+
+| Target     | Salida                                                                  |
+| ---------- | ----------------------------------------------------------------------- |
+| Standalone | `build/Rumor_artefacts/Release/Standalone/RUMOR.app`                    |
 | VST3       | `…/VST3/RUMOR.vst3` (+ `~/Library/Audio/Plug-Ins/VST3` si COPY está ON) |
-| AU         | `…/AU/RUMOR.component`                                                    |
+| AU         | `…/AU/RUMOR.component`                                                  |
+
+
+
 
 ### Windows
 
@@ -207,10 +205,12 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 `
 cmake --build build --config Release --target Rumor_Standalone
 ```
 
-| Target     | Salida                                                              |
-| ---------- | ------------------------------------------------------------------- |
-| Standalone | `build\Rumor_artefacts\Release\Standalone\RUMOR.exe`                |
-| VST3       | `build\Rumor_artefacts\Release\VST3\RUMOR.vst3`                     |
+
+| Target     | Salida                                               |
+| ---------- | ---------------------------------------------------- |
+| Standalone | `build\Rumor_artefacts\Release\Standalone\RUMOR.exe` |
+| VST3       | `build\Rumor_artefacts\Release\VST3\RUMOR.vst3`      |
+
 
 Opciones CMake útiles:
 
@@ -218,7 +218,7 @@ Opciones CMake útiles:
 - `-DRUMOR_BUILD_PLUGIN=OFF` — solo libs + tests
 - `-DRUMOR_BUILD_TESTS=OFF`
 
-Roadmap / pendientes de calibración y presencia: [`docs/TODO.md`](docs/TODO.md).
+Roadmap / pendientes de calibración y presencia: `[docs/TODO.md](docs/TODO.md)`.
 
 ---
 
@@ -229,8 +229,9 @@ Roadmap / pendientes de calibración y presencia: [`docs/TODO.md`](docs/TODO.md)
 1. Persona toca / se acerca a la estructura conductora (umbral).
 2. Arduino envía lecturas por USB Serial a la Pi.
 3. La app JUCE mapea el valor al synth y/o a PaulXStretch.
-4. El audio amplificado vibra agua
-5. La cámara de microscopía captura el agua; el proyector muestra la imagen; la calibración se ajusta desde la app web.
+4. El audio amplificado hace vibrar el recipiente de agua
+5. El audio de la sala tambien cambia dependiendo de los valores de proximidad
+6. La cámara de microscopía captura el agua; el proyector muestra la imagen; la calibración se ajusta desde la app web.
 
 ---
 

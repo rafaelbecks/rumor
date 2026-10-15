@@ -112,7 +112,8 @@ if(RUMOR_BUILD_PLUGIN)
     HEADER_NAME BinaryData.h
     NAMESPACE BinaryData
     SOURCES
-      app/Assets/ui-background.jpg
+      background.png
+      app/Assets/fonts/AnaloGrotesk-Trial-Regular.ttf
       app/Assets/fonts/Lato-Thin.ttf
       app/Assets/fonts/Lato-Light.ttf
       app/Assets/fonts/Lato-Regular.ttf

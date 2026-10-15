@@ -1,0 +1,9 @@
+{
+      "midi": {
+        "channel": 1,
+        "cc": {
+          "99": { "parameter": "not.a.real.param", "min": 0, "max": 1 }
+        }
+      },
+      "joystick": { "buttonCC": 3, "banks": [] }
+    }

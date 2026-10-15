@@ -9,8 +9,8 @@
 
 namespace {
 constexpr int kEditorWidth = 1100;
-constexpr int kEditorHeight = 720;
-constexpr int kHeaderH = 72;
+constexpr int kEditorHeight = 780;
+constexpr int kHeaderH = 40;  // compact toolbar + RUMOR wordmark
 constexpr int kFooterH = 44;
 constexpr int kRowH = 26;
 constexpr int kDestRowH = 26;
@@ -116,29 +116,91 @@ class AtelierLookAndFeel : public juce::LookAndFeel_V4 {
     g.fillRoundedRectangle(r, 5.0f);
     g.setColour(box.hasKeyboardFocus(true) ? kAccent.withAlpha(0.6f) : kGlassStroke);
     g.drawRoundedRectangle(r, 5.0f, 1.0f);
+
+    juce::Rectangle<int> arrowZone(width - 22, 0, 16, height);
+    juce::Path path;
+    path.startNewSubPath(static_cast<float>(arrowZone.getX()) + 3.0f,
+                         static_cast<float>(arrowZone.getCentreY()) - 2.0f);
+    path.lineTo(static_cast<float>(arrowZone.getCentreX()),
+                static_cast<float>(arrowZone.getCentreY()) + 3.0f);
+    path.lineTo(static_cast<float>(arrowZone.getRight()) - 3.0f,
+                static_cast<float>(arrowZone.getCentreY()) - 2.0f);
+    g.setColour(box.findColour(juce::ComboBox::arrowColourId)
+                    .withAlpha(box.isEnabled() ? 0.85f : 0.3f));
+    g.strokePath(path, juce::PathStrokeType(1.5f));
+  }
+
+  void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override {
+    label.setBounds(8, 1, box.getWidth() - 30, box.getHeight() - 2);
+    label.setFont(getComboBoxFont(box));
+    label.setJustificationType(juce::Justification::centredLeft);
+    label.setColour(juce::Label::textColourId, box.findColour(juce::ComboBox::textColourId));
+  }
+
+  void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override {
+    g.setColour(juce::Colour(0xf01c1c1f));
+    g.fillRoundedRectangle(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 6.0f);
+    g.setColour(kGlassStroke);
+    g.drawRoundedRectangle(0.5f, 0.5f, static_cast<float>(width) - 1.0f,
+                           static_cast<float>(height) - 1.0f, 6.0f, 1.0f);
+  }
+
+  void drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator,
+                         bool isActive, bool isHighlighted, bool isTicked, bool hasSubMenu,
+                         const juce::String& text, const juce::String& shortcutKeyText,
+                         const juce::Drawable* icon, const juce::Colour* textColourToUse) override {
+    if (isSeparator) {
+      auto r = area.reduced(8, 0);
+      g.setColour(juce::Colour(0x22ffffff));
+      g.fillRect(r.withHeight(1).withY(r.getCentreY()));
+      return;
+    }
+
+    auto r = area.reduced(2, 1);
+    if (isHighlighted && isActive) {
+      g.setColour(kAccent.withAlpha(0.28f));
+      g.fillRoundedRectangle(r.toFloat(), 4.0f);
+    }
+
+    auto textColour = textColourToUse != nullptr ? *textColourToUse
+                                                 : (isActive ? kText : kMuted);
+    g.setColour(isHighlighted ? kText : textColour);
+
+    auto font = getPopupMenuFont();
+    font = font.withHeight(juce::jmin(font.getHeight(), static_cast<float>(r.getHeight()) * 0.7f));
+    g.setFont(font);
+
+    auto textR = r.reduced(10, 0);
+    if (isTicked) {
+      g.setColour(kAccent);
+      g.fillEllipse(static_cast<float>(textR.getX()), static_cast<float>(r.getCentreY()) - 3.0f, 6.0f,
+                    6.0f);
+      textR.removeFromLeft(14);
+      g.setColour(isHighlighted ? kText : textColour);
+    }
+    g.drawFittedText(text, textR, juce::Justification::centredLeft, 1);
+
+    juce::ignoreUnused(hasSubMenu, shortcutKeyText, icon);
   }
 
   juce::Typeface::Ptr light;
   juce::Typeface::Ptr regular;
 
-  juce::Font getComboBoxFont(juce::ComboBox&) override {
-    if (regular != nullptr) return juce::Font(juce::FontOptions{regular}).withHeight(12.5f);
-    return juce::Font(juce::FontOptions(12.5f));
+  juce::Font uiFont(float height) const {
+    if (light != nullptr) return juce::Font(juce::FontOptions{light}).withHeight(height);
+    if (regular != nullptr) return juce::Font(juce::FontOptions{regular}).withHeight(height);
+    return juce::Font(juce::FontOptions(height));
   }
 
-  juce::Font getTextButtonFont(juce::TextButton&, int) override {
-    if (light != nullptr) return juce::Font(juce::FontOptions{light}).withHeight(12.5f);
-    return juce::Font(juce::FontOptions(12.5f));
-  }
+  juce::Font getComboBoxFont(juce::ComboBox&) override { return uiFont(12.5f); }
+  juce::Font getPopupMenuFont() override { return uiFont(12.5f); }
 
-  juce::Font getLabelFont(juce::Label&) override {
-    if (light != nullptr) return juce::Font(juce::FontOptions{light}).withHeight(12.5f);
-    return juce::Font(juce::FontOptions(12.5f));
-  }
+  juce::Font getTextButtonFont(juce::TextButton&, int) override { return uiFont(12.5f); }
+
+  juce::Font getLabelFont(juce::Label&) override { return uiFont(12.5f); }
 
   juce::Font getTabButtonFont(juce::TabBarButton&, float height) override {
-    if (light != nullptr) return juce::Font(juce::FontOptions{light}).withHeight(height * 0.55f);
-    return juce::Font(juce::FontOptions(height * 0.55f));
+    return uiFont(height * 0.55f);
   }
 
   void drawTabButton(juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver,
@@ -167,9 +229,10 @@ class AtelierLookAndFeel : public juce::LookAndFeel_V4 {
 
 void UmbralAudioProcessorEditor::ModuleFrame::paint(juce::Graphics& g) {
   auto r = getLocalBounds().toFloat();
-  g.setColour(kGlass);
+  // Base panel colour with per-module alpha so left/right read differently.
+  g.setColour(juce::Colour(0x1c1c1f).withAlpha(juce::jlimit(0.15f, 0.85f, fillAlpha_)));
   g.fillRoundedRectangle(r, 12.0f);
-  g.setColour(kGlassStroke);
+  g.setColour(kGlassStroke.withAlpha(0.35f + fillAlpha_ * 0.25f));
   g.drawRoundedRectangle(r.reduced(0.5f), 12.0f, 1.0f);
 }
 
@@ -185,8 +248,7 @@ UmbralAudioProcessorEditor::GlassPanel::GlassPanel(const juce::String& titleText
 }
 
 void UmbralAudioProcessorEditor::GlassPanel::paint(juce::Graphics& g) {
-  // Nested inside ModuleFrame: keep content chrome-free.
-  if (!title.isVisible() || title.getText().isEmpty()) return;
+  // Same inner glass treatment as PaulXStretchPanel.
   auto r = getLocalBounds().toFloat();
   g.setColour(kGlass);
   g.fillRoundedRectangle(r, 8.0f);
@@ -253,6 +315,10 @@ UmbralAudioProcessorEditor::DestinationRow::DestinationRow()
   for (int i = 0; i < kDestNameCount; ++i) parameterBox.addItem(kDestNames[i], i + 1);
   parameterBox.setSelectedItemIndex(0, juce::dontSendNotification);
   parameterBox.addListener(this);
+  parameterBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0x14ffffff));
+  parameterBox.setColour(juce::ComboBox::outlineColourId, kGlassStroke);
+  parameterBox.setColour(juce::ComboBox::textColourId, kText);
+  parameterBox.setColour(juce::ComboBox::arrowColourId, kMuted);
   addAndMakeVisible(parameterBox);
   ccLabel.setColour(juce::Label::textColourId, kMuted);
   addAndMakeVisible(ccLabel);
@@ -388,7 +454,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
       pxBalLabel_({}, "balance l/r"),
       masterLabel_({}, "master"),
       balanceLabel_({}, "balance"),
-      balanceHint_({}, "l sub  ·  r dayton"),
+      balanceHint_({}, U8("l sub  \xc2\xb7  r dayton")),
       gainLLabel_({}, "l sub"),
       gainRLabel_({}, "r dayton"),
       swapOutToggle_("swap l/r"),
@@ -398,16 +464,21 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
       bothOutButton_("ambos") {
   setSize(kEditorWidth, kEditorHeight);
 
+  analoGrotesk_ = juce::Typeface::createSystemTypefaceFor(BinaryData::AnaloGroteskTrialRegular_ttf,
+                                                          BinaryData::AnaloGroteskTrialRegular_ttfSize);
   latoThin_ = juce::Typeface::createSystemTypefaceFor(BinaryData::LatoThin_ttf,
                                                       BinaryData::LatoThin_ttfSize);
   latoLight_ = juce::Typeface::createSystemTypefaceFor(BinaryData::LatoLight_ttf,
                                                        BinaryData::LatoLight_ttfSize);
   latoRegular_ = juce::Typeface::createSystemTypefaceFor(BinaryData::LatoRegular_ttf,
                                                          BinaryData::LatoRegular_ttfSize);
-  if (latoThin_ != nullptr)
-    titleFont_ = juce::Font(juce::FontOptions{latoThin_}).withHeight(56.0f);
+  // Wordmark only: Analo Grotesk (UI stays Lato).
+  if (analoGrotesk_ != nullptr)
+    titleFont_ = juce::Font(juce::FontOptions{analoGrotesk_}).withHeight(static_cast<float>(kHeaderH));
+  else if (latoLight_ != nullptr)
+    titleFont_ = juce::Font(juce::FontOptions{latoLight_}).withHeight(static_cast<float>(kHeaderH));
   else
-    titleFont_ = juce::Font(juce::FontOptions(56.0f));
+    titleFont_ = juce::Font(juce::FontOptions(static_cast<float>(kHeaderH)));
   if (latoLight_ != nullptr)
     brandFont_ = juce::Font(juce::FontOptions{latoLight_}).withHeight(13.0f);
   else
@@ -420,16 +491,23 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   auto laf = std::make_unique<AtelierLookAndFeel>();
   laf->light = latoLight_;
   laf->regular = latoRegular_;
+  laf->setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xf01c1c1f));
+  laf->setColour(juce::PopupMenu::textColourId, kText);
+  laf->setColour(juce::PopupMenu::highlightedBackgroundColourId, kAccent.withAlpha(0.28f));
+  laf->setColour(juce::PopupMenu::highlightedTextColourId, kText);
+  laf->setColour(juce::ComboBox::textColourId, kText);
+  laf->setColour(juce::ComboBox::arrowColourId, kMuted);
   atelierLaf_ = std::move(laf);
   setLookAndFeel(atelierLaf_.get());
 
-  background_ = juce::ImageCache::getFromMemory(BinaryData::uibackground_jpg,
-                                                BinaryData::uibackground_jpgSize);
+  background_ = juce::ImageCache::getFromMemory(BinaryData::background_png,
+                                                BinaryData::background_pngSize);
 
   titleLabel_.setText("RUMOR", juce::dontSendNotification);
   titleLabel_.setFont(titleFont_);
   titleLabel_.setColour(juce::Label::textColourId, kText);
   titleLabel_.setJustificationType(juce::Justification::centred);
+  titleLabel_.setMinimumHorizontalScale(0.35f);
   addAndMakeVisible(titleLabel_);
   subtitleLabel_.setVisible(false);
 
@@ -711,6 +789,13 @@ void UmbralAudioProcessorEditor::styleCuteControls() {
     tintBox(*c);
 }
 
+void UmbralAudioProcessorEditor::parentHierarchyChanged() {
+  // Hide the standalone window title text ("RUMOR"); keep Options / window buttons.
+  if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+    if (dw->getName().isNotEmpty())
+      dw->setName({});
+}
+
 void UmbralAudioProcessorEditor::paint(juce::Graphics& g) {
   if (background_.isValid()) {
     g.drawImage(background_, getLocalBounds().toFloat(),
@@ -742,18 +827,27 @@ void UmbralAudioProcessorEditor::updateWaveGraph() {
 void UmbralAudioProcessorEditor::resized() {
   auto area = getLocalBounds().reduced(14, 10);
 
-  // Header: utilities left/right, "RUMOR" centered.
+  // Single 40px header: RUMOR centered, utilities on the sides.
   auto header = area.removeFromTop(kHeaderH);
-  const int sideW = 230;
-  auto leftHdr = header.removeFromLeft(sideW);
-  auto rightHdr = header.removeFromRight(sideW);
+  titleFont_ = titleFont_.withHeight(static_cast<float>(kHeaderH) * 0.9f);
+  titleLabel_.setFont(titleFont_);
   titleLabel_.setBounds(header);
-  presetBox_.setBounds(leftHdr.removeFromLeft(130).reduced(0, 16));
+  titleLabel_.toBack();
+
+  auto leftHdr = header.removeFromLeft(230);
+  auto rightHdr = header.removeFromRight(230);
+  presetBox_.setBounds(leftHdr.removeFromLeft(150).reduced(0, 6));
   leftHdr.removeFromLeft(6);
-  savePresetButton_.setBounds(leftHdr.removeFromLeft(72).reduced(0, 16));
-  engineButton_.setBounds(rightHdr.removeFromRight(72).reduced(0, 16));
-  statusLabel_.setBounds(rightHdr.reduced(4, 20));
+  savePresetButton_.setBounds(leftHdr.removeFromLeft(72).reduced(0, 6));
+  engineButton_.setBounds(rightHdr.removeFromRight(72).reduced(0, 6));
+  statusLabel_.setBounds(rightHdr.reduced(4, 6));
   subtitleLabel_.setBounds({});
+  presetBox_.toFront(false);
+  savePresetButton_.toFront(false);
+  engineButton_.toFront(false);
+  statusLabel_.toFront(false);
+
+  area.removeFromTop(kGap);
 
   // Footer: engine enable checkboxes.
   auto footer = area.removeFromBottom(kFooterH);
@@ -762,7 +856,7 @@ void UmbralAudioProcessorEditor::resized() {
   footer.removeFromLeft(8);
   pxToggle_.setBounds(footer.removeFromLeft(120).reduced(0, 6));
 
-  area.removeFromTop(kGap);
+  // Modules take the remaining vertical space.
   const int leftW = area.getWidth() * 48 / 100;
   leftModule_.setBounds(area.removeFromLeft(leftW));
   area.removeFromLeft(kGap);
@@ -1318,7 +1412,7 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
   }
   if (button == &addDestButton_) {
     if (static_cast<int>(destRows_.size()) >= glow::kSerialMaxDestinations) {
-      setStatus(U8("Maximo de destinos alcanzado."), true);
+      setStatus(U8("M\xc3\xa1ximo de destinos alcanzado."), true);
       return;
     }
     addDestinationRow({glow::SerialDestination::ChordSpread, 0.0f, 1.0f, false});
