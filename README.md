@@ -29,7 +29,7 @@ Builds automáticos del Standalone. Tras cada push a `main`, CI publica el relea
 | **Windows** | [RUMOR-windows.zip](https://github.com/rafaelbecks/rumor/releases/latest/download/RUMOR-windows.zip) |
 | **Linux (Raspberry Pi, aarch64)** | _pending_ (not in this build) |
 
-Última publicación: `2026-10-20` · commit [`9c618b8`](https://github.com/rafaelbecks/rumor/commit/9c618b8e92adaf422b625c33ac0553678c6788b9) · [CI run](https://github.com/rafaelbecks/rumor/actions/runs/39408846027)
+Última publicación: `2026-10-20` · commit [`76b1aa8`](https://github.com/rafaelbecks/rumor/commit/76b1aa831153bd6a027a4c333a5630970af6092c) · [CI run](https://github.com/rafaelbecks/rumor/actions/runs/39416880720)
 
 También en [Releases → Latest](https://github.com/rafaelbecks/rumor/releases/latest).
 <!-- RUMOR_DOWNLOADS:END -->
