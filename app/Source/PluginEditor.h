@@ -70,6 +70,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   void sliderValueChanged(juce::Slider* slider) override;
   void comboBoxChanged(juce::ComboBox* box) override;
   void textEditorTextChanged(juce::TextEditor&) override;
+  void textEditorReturnKeyPressed(juce::TextEditor&) override;
 
   void refreshSerialPorts();
   void refreshMidiOutputs();
@@ -147,6 +148,11 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   juce::TextButton refreshPortsButton_;
   juce::TextButton addDestButton_;
   juce::ToggleButton debugToggle_;
+  juce::Label remoteLabel_;
+  juce::TextEditor remoteUrlEdit_;
+  juce::TextButton remoteButton_;
+  uint32_t lastRemoteUiRevision_{0};
+  uint32_t lastRemotePxRevision_{0};
 
   juce::Label portLabel_;
   juce::ComboBox portBox_;

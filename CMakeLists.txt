@@ -130,6 +130,7 @@ if(RUMOR_BUILD_PLUGIN)
     PRIVATE
       app/Source/PluginProcessor.cpp
       app/Source/PluginEditor.cpp
+      app/Source/RemoteLink.cpp
       app/Source/PaulXStretchPanel.cpp
       app/Source/Presets.cpp
   )

@@ -10,6 +10,7 @@
 #include "engines/OutputRouter.h"
 #include "parameters/ParameterRegistry.h"
 #include "util/LockFreeQueue.h"
+#include "RemoteLink.h"
 
 #if RUMOR_HAS_PAULXSTRETCH
 #include "engines/paulxstretch/PaulXStretchEngine.h"
@@ -126,6 +127,16 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
 
   juce::AudioProcessorValueTreeState& apvts() { return apvts_; }
 
+  /** Outbound link to the remote calibration hub. Empty URL is ignored. */
+  void connectRemote(const juce::String& url);
+  void disconnectRemote();
+  bool isRemoteEnabled() const { return remoteEnabled_; }
+  bool isRemoteConnected() const;
+  juce::String getRemoteUrl() const { return remoteUrl_; }
+  juce::String getRemoteStatus() const;
+  uint32_t remoteUiRevision() const { return remoteUiRevision_.load(); }
+  uint32_t remotePxRevision() const { return remotePxRevision_.load(); }
+
   static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
   static juce::String paramIdFor(glow::ParameterID id);
 
@@ -138,6 +149,14 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   void applySerialConfig(const glow::SerialConfig& cfg, bool connectSerial, juce::String& statusOut);
   void appendDebugLine(const juce::String& line);
   juce::String serialConfigToJson(const glow::SerialConfig& cfg) const;
+  void applyRemoteCommand(const juce::var& msg);
+  void applyRemoteParam(const juce::String& id, float value);
+  void applyRemoteConfig(const juce::var& config);
+  juce::String buildRemoteHelloJson() const;
+  juce::String buildRemoteStateJson() const;
+  void bumpRemoteUi();
+  void bumpRemotePx();
+  void refreshRemoteDevices();
   void prepareActiveEngine();
 
   juce::AudioProcessorValueTreeState apvts_;
@@ -172,6 +191,18 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   std::unique_ptr<juce::MidiOutput> midiOut_;
   juce::String midiOutIdentifier_;
   juce::String midiOutName_;
+
+  std::unique_ptr<RemoteLink> remote_;
+  struct RemoteDevicePoll;
+  std::unique_ptr<RemoteDevicePoll> remotePoll_;
+  mutable juce::CriticalSection remoteDeviceLock_;
+  juce::Array<juce::var> remotePorts_;
+  juce::Array<juce::var> remoteMidi_;
+  juce::Array<juce::var> remotePresets_;
+  juce::String remoteUrl_;
+  bool remoteEnabled_{false};
+  std::atomic<uint32_t> remoteUiRevision_{0};
+  std::atomic<uint32_t> remotePxRevision_{0};
 
   std::atomic<bool> engineOn_{false};
   std::atomic<int> droneNote_{55};

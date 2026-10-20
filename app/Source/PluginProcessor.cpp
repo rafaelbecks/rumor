@@ -91,6 +91,12 @@ UmbralAudioProcessor::createParameterLayout() {
   return {params.begin(), params.end()};
 }
 
+struct UmbralAudioProcessor::RemoteDevicePoll : juce::Timer {
+  explicit RemoteDevicePoll(UmbralAudioProcessor& owner) : owner_(owner) { startTimerHz(1); }
+  void timerCallback() override { owner_.refreshRemoteDevices(); }
+  UmbralAudioProcessor& owner_;
+};
+
 UmbralAudioProcessor::UmbralAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts_(*this, nullptr, "PARAMS", createParameterLayout()) {
@@ -152,13 +158,25 @@ UmbralAudioProcessor::UmbralAudioProcessor()
 
   juce::String status;
   umbral_presets::applyPreset(*this, umbral_presets::factoryAntenaGranular(), status);
+
+  refreshRemoteDevices();
+  remotePoll_ = std::make_unique<RemoteDevicePoll>(*this);
+  remote_ = std::make_unique<RemoteLink>();
+  remote_->start([this] { return buildRemoteHelloJson(); },
+                 [this] { return buildRemoteStateJson(); },
+                 [this](const juce::var& msg) { applyRemoteCommand(msg); });
 }
 
 UmbralAudioProcessor::~UmbralAudioProcessor() {
+  remotePoll_.reset();
   serialPitch_.setOnReading({});
   serialPitch_.setOnMidiCc({});
   serialPitch_.setOnEngineParam({});
   serialPitch_.close();
+  if (remote_ != nullptr) {
+    remote_->stop();
+    remote_.reset();
+  }
   {
     std::lock_guard<std::mutex> lock(midiOutMutex_);
     midiOut_.reset();
@@ -406,9 +424,12 @@ glow::SerialConfig UmbralAudioProcessor::getSerialConfig() const {
 }
 
 void UmbralAudioProcessor::appendDebugLine(const juce::String& line) {
-  std::lock_guard<std::mutex> lock(debugMutex_);
-  debugLines_.push_back(line);
-  while (debugLines_.size() > 200) debugLines_.pop_front();
+  {
+    std::lock_guard<std::mutex> lock(debugMutex_);
+    debugLines_.push_back(line);
+    while (debugLines_.size() > 200) debugLines_.pop_front();
+  }
+  if (remote_ != nullptr) remote_->pushDebug(line);
 }
 
 juce::String UmbralAudioProcessor::consumeDebugLog() {
@@ -837,6 +858,411 @@ void UmbralAudioProcessor::setOutputMonoSum(bool mono) {
     p->setValueNotifyingHost(mono ? 1.0f : 0.0f);
 }
 
+namespace {
+
+const char* remoteGroup(glow::ParameterID id) {
+  switch (id) {
+    case glow::ParameterID::PitchOffset:
+    case glow::ParameterID::FilterCutoff:
+    case glow::ParameterID::FilterResonance:
+    case glow::ParameterID::Amplitude:
+    case glow::ParameterID::Attack:
+    case glow::ParameterID::Release:
+    case glow::ParameterID::SineTimbre:
+      return "sinte";
+    case glow::ParameterID::ChordSpread:
+    case glow::ParameterID::GrainSize:
+    case glow::ParameterID::GrainDensity:
+    case glow::ParameterID::GrainPosition:
+    case glow::ParameterID::GrainSpray:
+    case glow::ParameterID::GrainPitch:
+    case glow::ParameterID::GrainMix:
+    case glow::ParameterID::FolderDrive:
+    case glow::ParameterID::FolderSymmetry:
+    case glow::ParameterID::FolderMix:
+    case glow::ParameterID::Waveform:
+    case glow::ParameterID::Count:
+      return "modulacion";
+  }
+  return "modulacion";
+}
+
+const char* remoteLabel(glow::ParameterID id) {
+  switch (id) {
+    case glow::ParameterID::PitchOffset: return "pitch offset";
+    case glow::ParameterID::FilterCutoff: return "cutoff";
+    case glow::ParameterID::FilterResonance: return "resonance";
+    case glow::ParameterID::ChordSpread: return "spread";
+    case glow::ParameterID::GrainSize: return "grain size";
+    case glow::ParameterID::GrainDensity: return "density";
+    case glow::ParameterID::GrainPosition: return "position";
+    case glow::ParameterID::GrainSpray: return "spray";
+    case glow::ParameterID::GrainPitch: return "grain pitch";
+    case glow::ParameterID::GrainMix: return "grain mix";
+    case glow::ParameterID::FolderDrive: return "folder";
+    case glow::ParameterID::FolderSymmetry: return "symmetry";
+    case glow::ParameterID::FolderMix: return "folder mix";
+    case glow::ParameterID::Attack: return "attack";
+    case glow::ParameterID::Release: return "release";
+    case glow::ParameterID::Amplitude: return "gain";
+    case glow::ParameterID::SineTimbre: return "timbre";
+    case glow::ParameterID::Waveform:
+    case glow::ParameterID::Count: break;
+  }
+  return glow::parameterName(id);
+}
+
+float remoteNumber(const juce::var& value) {
+  if (value.isBool()) return static_cast<bool>(value) ? 1.0f : 0.0f;
+  return static_cast<float>(static_cast<double>(value));
+}
+
+}  // namespace
+
+void UmbralAudioProcessor::connectRemote(const juce::String& url) {
+  remoteUrl_ = url.trim();
+  remoteEnabled_ = remoteUrl_.isNotEmpty();
+  if (remote_ != nullptr) remote_->setUrl(remoteEnabled_ ? remoteUrl_ : juce::String());
+}
+
+void UmbralAudioProcessor::disconnectRemote() {
+  remoteEnabled_ = false;
+  if (remote_ != nullptr) remote_->setUrl({});
+}
+
+bool UmbralAudioProcessor::isRemoteConnected() const {
+  return remote_ != nullptr && remote_->isConnected();
+}
+
+juce::String UmbralAudioProcessor::getRemoteStatus() const {
+  return remote_ != nullptr ? remote_->status() : juce::String();
+}
+
+void UmbralAudioProcessor::bumpRemoteUi() { remoteUiRevision_.fetch_add(1); }
+
+void UmbralAudioProcessor::bumpRemotePx() { remotePxRevision_.fetch_add(1); }
+
+void UmbralAudioProcessor::applyRemoteCommand(const juce::var& msg) {
+  if (!msg.isObject()) return;
+  const auto type = msg.getProperty("t", {}).toString();
+  if (type == "setParam") {
+    applyRemoteParam(msg.getProperty("id", {}).toString(), remoteNumber(msg.getProperty("value", {})));
+    return;
+  }
+  if (type == "setConfig") {
+    applyRemoteConfig(msg.getProperty("config", {}));
+    return;
+  }
+  if (type == "engine") {
+    if (msg.hasProperty("on")) setEngineOn(static_cast<bool>(msg.getProperty("on", false)));
+    if (msg.hasProperty("granular"))
+      setGranularEnabled(static_cast<bool>(msg.getProperty("granular", true)));
+    if (msg.hasProperty("paulxstretch"))
+      setPaulXStretchEnabled(static_cast<bool>(msg.getProperty("paulxstretch", false)));
+    bumpRemoteUi();
+    return;
+  }
+  if (type == "debug" && msg.hasProperty("on")) {
+    setSerialDebugConsole(static_cast<bool>(msg.getProperty("on", false)));
+    bumpRemoteUi();
+    return;
+  }
+  if (type == "refresh") {
+    refreshRemoteDevices();
+    return;
+  }
+  if (type == "serial") {
+    auto cfg = getSerialConfig();
+    if (msg.hasProperty("port")) cfg.port = msg.getProperty("port", {}).toString().toStdString();
+    if (msg.hasProperty("baud")) cfg.baud = static_cast<int>(msg.getProperty("baud", cfg.baud));
+    const bool connect = static_cast<bool>(msg.getProperty("connect", false));
+    juce::String status;
+    if (msg.hasProperty("connect") && !connect) {
+      applyConfig(cfg, status, false);
+      disconnectSerial();
+    } else {
+      applyConfig(cfg, status, connect);
+    }
+    bumpRemoteUi();
+    return;
+  }
+  if (type == "midi") {
+    juce::String status;
+    setMidiOutputDevice(msg.getProperty("id", {}).toString(), status);
+    return;
+  }
+  if (type == "preset") {
+    const auto name = msg.getProperty("name", {}).toString().trim();
+    juce::String status;
+    if (name.isEmpty()) return;
+    if (static_cast<bool>(msg.getProperty("save", false))) {
+      umbral_presets::savePreset(name, umbral_presets::capturePreset(*this, name), status);
+    } else if (auto preset = umbral_presets::loadPreset(name, status)) {
+      umbral_presets::applyPreset(*this, *preset, status);
+    }
+    refreshRemoteDevices();
+    bumpRemoteUi();
+    return;
+  }
+  if (type == "pxSource") {
+    if (static_cast<bool>(msg.getProperty("clear", false))) clearPaulXStretchSource();
+    if (msg.hasProperty("path")) {
+      juce::String status;
+      loadPaulXStretchSource(juce::File(msg.getProperty("path", {}).toString()), status);
+    }
+    if (static_cast<bool>(msg.getProperty("arm", false))) {
+      setPaulXStretchEnabled(true);
+      setPaulXStretchParameter("px.pause", 0.0f);
+      if (!isEngineOn()) setEngineOn(true);
+    }
+    bumpRemoteUi();
+  }
+}
+
+void UmbralAudioProcessor::applyRemoteParam(const juce::String& id, float value) {
+  if (id == "drone") {
+    setDroneNote(juce::roundToInt(value));
+    bumpRemoteUi();
+    return;
+  }
+  const auto param = glow::parameterIdFromName(id.toStdString());
+  if (param != glow::ParameterID::Count) {
+    setParameterTarget(param, value);
+    return;
+  }
+  if (id.startsWith("px.")) {
+    if (setPaulXStretchParameter(id, value)) bumpRemotePx();
+    return;
+  }
+  if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(apvts_.getParameter(id)))
+    ranged->setValueNotifyingHost(ranged->convertTo0to1(value));
+}
+
+void UmbralAudioProcessor::applyRemoteConfig(const juce::var& config) {
+  if (!config.isObject()) return;
+  glow::SerialConfig parsed;
+  std::string err;
+  if (!glow::ConfigLoader::parseSerialText(juce::JSON::toString(config, true).toStdString(), parsed,
+                                           err))
+    return;
+
+  auto cfg = getSerialConfig();
+  if (config.hasProperty("input")) {
+    cfg.inputLow = parsed.inputLow;
+    cfg.inputHigh = parsed.inputHigh;
+  }
+  if (config.hasProperty("destinations")) cfg.destinations = std::move(parsed.destinations);
+  if (config.hasProperty("drone")) cfg.droneNote = parsed.droneNote;
+  if (config.hasProperty("waveform")) cfg.waveform = parsed.waveform;
+  if (config.hasProperty("quantize")) cfg.quantize = parsed.quantize;
+  if (config.hasProperty("debug")) {
+    cfg.debug = parsed.debug;
+    setSerialDebugConsole(parsed.debug);
+  }
+
+  juce::String status;
+  if (applyConfig(cfg, status, false)) bumpRemoteUi();
+}
+
+juce::String UmbralAudioProcessor::buildRemoteHelloJson() const {
+  auto* root = new juce::DynamicObject();
+  root->setProperty("t", "hello");
+  root->setProperty("name", "RUMOR");
+
+  auto* catalog = new juce::DynamicObject();
+  juce::Array<juce::var> params;
+  auto add = [&](juce::String id, juce::String label, const char* group, float minV, float maxV,
+                 bool boolean) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("id", id);
+    item->setProperty("label", label);
+    item->setProperty("group", group);
+    item->setProperty("min", minV);
+    item->setProperty("max", maxV);
+    if (boolean) item->setProperty("bool", true);
+    params.add(juce::var(item));
+  };
+
+  for (size_t i = 0; i < glow::ParameterRegistry::count(); ++i) {
+    const auto id = static_cast<glow::ParameterID>(i);
+    if (id == glow::ParameterID::Waveform) continue;
+    const auto& desc = glow::parameterDesc(id);
+    add(desc.name, remoteLabel(id), remoteGroup(id), desc.minimum, desc.maximum, false);
+  }
+
+  const struct Out {
+    const char* id;
+    const char* label;
+    float min;
+    float max;
+    bool boolean;
+  } outs[] = {
+      {"out.balance", "balance", -1.0f, 1.0f, false},
+      {"out.gainL", "l sub", 0.0f, 1.0f, false},
+      {"out.gainR", "r dayton", 0.0f, 1.0f, false},
+      {"out.swap", "swap l/r", 0.0f, 1.0f, true},
+      {"out.monoSum", "mono", 0.0f, 1.0f, true},
+      {"route.gran.level", "sinte nivel", 0.0f, 1.0f, false},
+      {"route.gran.balance", "sinte l/r", -1.0f, 1.0f, false},
+      {"route.px.level", "px nivel", 0.0f, 1.0f, false},
+      {"route.px.balance", "px l/r", -1.0f, 1.0f, false},
+  };
+  for (const auto& out : outs) add(out.id, out.label, "salida", out.min, out.max, out.boolean);
+
+#if RUMOR_HAS_PAULXSTRETCH
+  if (pxEngine_ != nullptr) {
+    for (const auto& info : pxEngine_->parameters()) {
+      const auto label =
+          juce::String(info.displayName).upToFirstOccurrenceOf(" (", false, false).toLowerCase();
+      add(juce::String(info.id), label, "paulxstretch", info.minimum, info.maximum, !info.continuous);
+    }
+  }
+#endif
+
+  juce::Array<juce::var> destinations;
+  for (int i = 0; i < static_cast<int>(glow::SerialDestination::Count); ++i) {
+    const auto dest = static_cast<glow::SerialDestination>(i);
+    float minV = 0, maxV = 1, lo = 0, hi = 1;
+    glow::serialDestinationLimits(dest, minV, maxV);
+    glow::serialDestinationDefaultRange(dest, lo, hi);
+    auto* item = new juce::DynamicObject();
+    item->setProperty("id", glow::serialDestinationName(dest));
+    item->setProperty("min", minV);
+    item->setProperty("max", maxV);
+    item->setProperty("lo", lo);
+    item->setProperty("hi", hi);
+    destinations.add(juce::var(item));
+  }
+
+  juce::Array<juce::var> waves;
+  for (const char* name : {"sine", "saw", "square", "triangle"}) waves.add(name);
+  juce::Array<juce::var> scales;
+  scales.add("off");
+  for (size_t i = 0; i < glow::kScaleCount; ++i) scales.add(glow::kScales[i].name);
+  scales.add("harmonics");
+
+  catalog->setProperty("params", params);
+  catalog->setProperty("destinations", destinations);
+  catalog->setProperty("waves", waves);
+  catalog->setProperty("scales", scales);
+  root->setProperty("catalog", juce::var(catalog));
+  return juce::JSON::toString(juce::var(root), true);
+}
+
+juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
+  const auto cfg = getSerialConfig();
+  auto* root = new juce::DynamicObject();
+  root->setProperty("t", "state");
+
+  auto* state = new juce::DynamicObject();
+  state->setProperty("engineOn", engineOn_.load());
+  state->setProperty("granular", granularEnabled_.load());
+  state->setProperty("paulxstretch", pxEnabled_.load());
+  state->setProperty("drone", droneNote_.load());
+  state->setProperty("pitch", getDisplayedPitchMidi());
+  state->setProperty("hz", getSoundingFrequencyHz());
+  state->setProperty("debug", serialDebugConsole_.load());
+
+  auto* serial = new juce::DynamicObject();
+  serial->setProperty("connected", serialPitch_.isOpen());
+  serial->setProperty("port", juce::String(serialPitch_.isOpen() ? serialPitch_.path() : cfg.port));
+  serial->setProperty("baud", serialPitch_.isOpen() ? serialPitch_.baud() : cfg.baud);
+  serial->setProperty("raw", serialPitch_.lastRawAdc());
+  serial->setProperty("smoothed", serialPitch_.lastSmoothedAdc());
+  juce::Array<juce::var> input;
+  input.add(cfg.inputLow);
+  input.add(cfg.inputHigh);
+  serial->setProperty("input", input);
+  state->setProperty("serial", juce::var(serial));
+
+  auto* config = new juce::DynamicObject();
+  config->setProperty("drone", cfg.droneNote);
+  config->setProperty("waveform", juce::String(cfg.waveform.value_or("sine")));
+  config->setProperty("quantize", juce::String(cfg.quantize.value_or("off")));
+  config->setProperty("debug", serialDebugConsole_.load());
+  config->setProperty("input", input);
+  juce::Array<juce::var> destinations;
+  for (const auto& route : cfg.destinations) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("parameter", glow::serialDestinationName(route.destination));
+    item->setProperty("min", route.min);
+    item->setProperty("max", route.max);
+    item->setProperty("invert", route.invert);
+    if (route.destination == glow::SerialDestination::MidiCc) item->setProperty("cc", route.midiCc);
+    destinations.add(juce::var(item));
+  }
+  config->setProperty("destinations", destinations);
+  state->setProperty("config", juce::var(config));
+
+  auto* params = new juce::DynamicObject();
+  for (size_t i = 0; i < glow::ParameterRegistry::count(); ++i) {
+    const auto id = static_cast<glow::ParameterID>(i);
+    params->setProperty(glow::parameterName(id), registry_.get(id).target());
+  }
+  for (const char* id :
+       {"out.balance", "out.gainL", "out.gainR", "out.swap", "out.monoSum", "route.gran.level",
+        "route.gran.balance", "route.px.level", "route.px.balance"}) {
+    if (auto* raw = apvts_.getRawParameterValue(id)) params->setProperty(id, raw->load());
+  }
+#if RUMOR_HAS_PAULXSTRETCH
+  if (pxEngine_ != nullptr) {
+    for (const auto& info : pxEngine_->parameters()) {
+      float value = 0.0f;
+      if (getPaulXStretchParameter(juce::String(info.id), value))
+        params->setProperty(juce::String(info.id), value);
+    }
+  }
+#endif
+  state->setProperty("params", juce::var(params));
+
+  juce::Array<juce::var> locked;
+  if (serialPitch_.isOpen()) {
+    for (const auto& route : cfg.destinations) {
+      if (route.destination == glow::SerialDestination::Pitch) {
+        locked.add("drone");
+        continue;
+      }
+      glow::ParameterID paramId{};
+      if (glow::serialDestinationToParameter(route.destination, paramId))
+        locked.add(glow::parameterName(paramId));
+      else if (glow::serialDestinationIsPaulXStretch(route.destination))
+        locked.add(glow::serialDestinationName(route.destination));
+    }
+  }
+  state->setProperty("locked", locked);
+  state->setProperty("midiOut", getMidiOutputIdentifier());
+  state->setProperty("pxSource", paulXStretchSourceName());
+  state->setProperty("pxPlayhead", paulXStretchPlayheadPercent());
+  state->setProperty("pxPrebuffer", paulXStretchPrebufferReady());
+  state->setProperty("pxReady", hasPaulXStretch());
+  {
+    const juce::ScopedLock lock(remoteDeviceLock_);
+    serial->setProperty("ports", remotePorts_);
+    state->setProperty("midiOuts", remoteMidi_);
+    state->setProperty("presets", remotePresets_);
+  }
+  root->setProperty("state", juce::var(state));
+  return juce::JSON::toString(juce::var(root), true);
+}
+
+void UmbralAudioProcessor::refreshRemoteDevices() {
+  juce::Array<juce::var> ports;
+  for (const auto& port : listSerialPorts()) ports.add(port);
+  juce::Array<juce::var> midi;
+  for (const auto& device : listMidiOutputDevices()) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("id", device.identifier);
+    item->setProperty("name", device.name);
+    midi.add(juce::var(item));
+  }
+  juce::Array<juce::var> presets;
+  for (const auto& name : umbral_presets::listPresetNames()) presets.add(name);
+  const juce::ScopedLock lock(remoteDeviceLock_);
+  remotePorts_ = std::move(ports);
+  remoteMidi_ = std::move(midi);
+  remotePresets_ = std::move(presets);
+}
+
 void UmbralAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
   auto state = apvts_.copyState();
   state.setProperty("engineOn", engineOn_.load(), nullptr);
@@ -847,6 +1273,8 @@ void UmbralAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
   state.setProperty("granularOn", granularEnabled_.load(), nullptr);
   state.setProperty("pxOn", pxEnabled_.load(), nullptr);
   state.setProperty("audioEngine", rumor::engineKindName(getAudioEngineKind()), nullptr);
+  state.setProperty("remoteUrl", remoteUrl_, nullptr);
+  state.setProperty("remoteOn", remoteEnabled_, nullptr);
   state.setProperty("pxSource", [&]() -> juce::String {
 #if RUMOR_HAS_PAULXSTRETCH
     std::lock_guard<std::mutex> lock(pxMutex_);
@@ -903,6 +1331,9 @@ void UmbralAudioProcessor::setStateInformation(const void* data, int sizeInBytes
   }
 
   setEngineOn(static_cast<bool>(tree.getProperty("engineOn", false)));
+
+  if (tree.hasProperty("remoteUrl")) remoteUrl_ = tree.getProperty("remoteUrl").toString();
+  if (static_cast<bool>(tree.getProperty("remoteOn", false))) connectRemote(remoteUrl_);
 }
 
 juce::AudioProcessorEditor* UmbralAudioProcessor::createEditor() {

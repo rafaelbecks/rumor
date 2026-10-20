@@ -438,6 +438,8 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
       refreshPortsButton_("actualizar"),
       addDestButton_("agregar"),
       debugToggle_("debug"),
+      remoteLabel_({}, "remoto"),
+      remoteButton_("vincular"),
       portLabel_({}, "puerto"),
       baudLabel_({}, "baud"),
       midiOutLabel_({}, "midi out"),
@@ -573,7 +575,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   addAndMakeVisible(rightModule_);
 
   for (auto* b : {&applyButton_, &connectButton_, &disconnectButton_, &refreshPortsButton_,
-                  &addDestButton_}) {
+                  &addDestButton_, &remoteButton_}) {
     b->addListener(this);
     serialPanel_.addAndMakeVisible(b);
   }
@@ -583,10 +585,21 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   serialPanel_.addAndMakeVisible(debugToggle_);
 
   for (auto* l : {&portLabel_, &baudLabel_, &midiOutLabel_, &inputLabel_, &destSectionLabel_,
-                  &filterLabel_}) {
+                  &filterLabel_, &remoteLabel_}) {
     styleLabel(*l, brandFont_);
     serialPanel_.addAndMakeVisible(l);
   }
+  remoteUrlEdit_.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x14ffffff));
+  remoteUrlEdit_.setColour(juce::TextEditor::textColourId, kText);
+  remoteUrlEdit_.setColour(juce::TextEditor::outlineColourId, kGlassStroke);
+  remoteUrlEdit_.setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.55f));
+  remoteUrlEdit_.setFont(brandFont_);
+  remoteUrlEdit_.setJustification(juce::Justification::centredLeft);
+  remoteUrlEdit_.setTextToShowWhenEmpty("ws://host:5000", kMuted);
+  remoteUrlEdit_.setText(processor_.getRemoteUrl(), false);
+  remoteUrlEdit_.addListener(this);
+  remoteButton_.setButtonText(processor_.isRemoteEnabled() ? "cortar" : "vincular");
+  serialPanel_.addAndMakeVisible(remoteUrlEdit_);
   serialPanel_.addAndMakeVisible(portBox_);
   serialPanel_.addAndMakeVisible(baudBox_);
   serialPanel_.addAndMakeVisible(midiOutBox_);
@@ -742,6 +755,8 @@ UmbralAudioProcessorEditor::~UmbralAudioProcessorEditor() {
                   &addDestButton_})
     b->removeListener(this);
   debugToggle_.removeListener(this);
+  remoteButton_.removeListener(this);
+  remoteUrlEdit_.removeListener(this);
   droneSlider_.removeListener(this);
 }
 
@@ -777,6 +792,7 @@ void UmbralAudioProcessorEditor::styleCuteControls() {
                   static_cast<juce::Button*>(&granularToggle_),
                   static_cast<juce::Button*>(&pxToggle_),
                   static_cast<juce::Button*>(&debugToggle_),
+                  static_cast<juce::Button*>(&remoteButton_),
                   static_cast<juce::Button*>(&swapOutToggle_),
                   static_cast<juce::Button*>(&monoSumToggle_)})
     tintButton(*b);
@@ -870,6 +886,12 @@ void UmbralAudioProcessorEditor::resized() {
   // Serial internals
   {
     auto serial = serialPanel_.contentBounds();
+    auto sRemote = serial.removeFromTop(kRowH);
+    remoteLabel_.setBounds(sRemote.removeFromLeft(52));
+    remoteButton_.setBounds(sRemote.removeFromRight(72));
+    sRemote.removeFromRight(4);
+    remoteUrlEdit_.setBounds(sRemote);
+    serial.removeFromTop(4);
     auto s1 = serial.removeFromTop(kRowH);
     portLabel_.setBounds(s1.removeFromLeft(48));
     portBox_.setBounds(s1.removeFromLeft(s1.getWidth() - 170));
@@ -1258,9 +1280,52 @@ void UmbralAudioProcessorEditor::textEditorTextChanged(juce::TextEditor& ed) {
   if (&ed == &debugFilter_) rebuildDebugView();
 }
 
+void UmbralAudioProcessorEditor::textEditorReturnKeyPressed(juce::TextEditor& ed) {
+  if (&ed != &remoteUrlEdit_) return;
+  const auto url = remoteUrlEdit_.getText().trim();
+  if (url.isEmpty()) {
+    setStatus("URL vacia.", true);
+    return;
+  }
+  processor_.connectRemote(url);
+}
+
 void UmbralAudioProcessorEditor::timerCallback() {
   engineButton_.setButtonText(processor_.isEngineOn() ? "stop" : "start");
-  if (processor_.isSerialConnected()) setStatus(processor_.getSerialStatus());
+  remoteButton_.setButtonText(processor_.isRemoteEnabled() ? "cortar" : "vincular");
+  remoteButton_.setColour(juce::TextButton::buttonColourId,
+                          processor_.isRemoteConnected() ? kAccent.withAlpha(0.28f)
+                                                         : juce::Colour(0x14ffffff));
+
+  juce::String status;
+  if (processor_.isSerialConnected()) status = processor_.getSerialStatus();
+  const auto remote = processor_.getRemoteStatus();
+  if (remote.isNotEmpty()) {
+    if (status.isNotEmpty()) status << "  |  ";
+    status << remote;
+  }
+  if (status.isNotEmpty()) setStatus(status);
+
+  const auto uiRev = processor_.remoteUiRevision();
+  if (uiRev != lastRemoteUiRevision_) {
+    lastRemoteUiRevision_ = uiRev;
+    loadConfigIntoUi(processor_.getSerialConfig());
+    refreshEngineUi();
+    const bool debugOn = processor_.isSerialDebugConsole();
+    debugToggle_.setToggleState(debugOn, juce::dontSendNotification);
+    debugConsole_.setVisible(debugOn);
+    debugFilter_.setVisible(debugOn);
+    filterLabel_.setVisible(debugOn);
+    resized();
+    updateDroneReadout();
+    updateParamLockUi();
+  }
+  const auto pxRev = processor_.remotePxRevision();
+  if (pxRev != lastRemotePxRevision_) {
+    lastRemotePxRevision_ = pxRev;
+    if (pxPanel_ != nullptr) pxPanel_->refreshFromEngine();
+  }
+
   syncSlidersFromEngine();
   updateWaveGraph();
   if (debugConsole_.isVisible()) appendDebugChunk(processor_.consumeDebugLog());
@@ -1415,6 +1480,20 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
   if (button == &engineButton_) {
     processor_.setEngineOn(!processor_.isEngineOn());
     setStatus(processor_.isEngineOn() ? U8("Engine on.") : U8("Engine off."));
+    return;
+  }
+  if (button == &remoteButton_) {
+    if (processor_.isRemoteEnabled()) {
+      processor_.disconnectRemote();
+      setStatus(U8("Remoto desconectado."));
+      return;
+    }
+    const auto url = remoteUrlEdit_.getText().trim();
+    if (url.isEmpty()) {
+      setStatus("URL vacia.", true);
+      return;
+    }
+    processor_.connectRemote(url);
     return;
   }
   if (button == &refreshPortsButton_) {
