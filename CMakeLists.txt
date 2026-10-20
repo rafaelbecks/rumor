@@ -131,6 +131,7 @@ if(RUMOR_BUILD_PLUGIN)
       app/Source/PluginProcessor.cpp
       app/Source/PluginEditor.cpp
       app/Source/RemoteLink.cpp
+      app/Source/RemoteTls.cpp
       app/Source/PaulXStretchPanel.cpp
       app/Source/Presets.cpp
   )
@@ -149,6 +150,15 @@ if(RUMOR_BUILD_PLUGIN)
   set(RUMOR_PLUGIN_LIBS rumor_core juce::juce_audio_utils RumorAssets)
   if(RUMOR_WITH_PAULXSTRETCH)
     list(APPEND RUMOR_PLUGIN_LIBS rumor_px_engine)
+  endif()
+
+  if(APPLE)
+    list(APPEND RUMOR_PLUGIN_LIBS "-framework Security")
+  elseif(WIN32)
+    list(APPEND RUMOR_PLUGIN_LIBS secur32 crypt32)
+  else()
+    find_package(OpenSSL REQUIRED)
+    list(APPEND RUMOR_PLUGIN_LIBS OpenSSL::SSL OpenSSL::Crypto)
   endif()
 
   target_link_libraries(Rumor
