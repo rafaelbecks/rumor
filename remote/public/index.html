@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#141416" />
+    <title>RUMOR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="idle">
+    <canvas id="bg"></canvas>
+    <div id="ui">
+    <header>
+      <div class="wordmark">RUMOR</div>
+      <div class="status"><i id="dot"></i><span id="status">inactive</span></div>
+    </header>
+    <div id="app" hidden>
+    <div class="toolbar">
+      <button type="button" id="engine">start</button>
+      <button type="button" id="granular">sinte</button>
+      <button type="button" id="pxEnable">paulxstretch</button>
+    </div>
+    <select id="device" hidden></select>
+    <nav class="tabs">
+      <button type="button" data-tab="serial">serial</button>
+      <button type="button" data-tab="sinte" class="on">sinte</button>
+      <button type="button" data-tab="paulxstretch">paulxstretch</button>
+      <button type="button" data-tab="salida">salida</button>
+    </nav>
+    <div id="panels">
+      <section id="serial" hidden></section>
+      <section id="sinte"></section>
+      <section id="paulxstretch" hidden></section>
+      <section id="salida" hidden></section>
+    </div>
+    </div>
+    </div>
+    <script src="bg.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

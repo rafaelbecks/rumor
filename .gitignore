@@ -14,3 +14,4 @@ deps/JUCE/
 *.exe
 releases/
 dist/
+remote/node_modules/
