@@ -12,6 +12,7 @@
 #include "util/LockFreeQueue.h"
 
 #include <array>
+#include <atomic>
 
 namespace glow {
 
@@ -34,6 +35,11 @@ class Synth {
   void noteOn(uint8_t note, uint8_t velocity);
   void noteOff(uint8_t note);
 
+  /** Extra tones mixed with the drone before the shared filter / folder / grains. 1..3. */
+  static constexpr int kMaxPitches = 3;
+  void setPitchCount(int count);
+  void setExtraNote(int index, int note);
+
  private:
   void pullParameters();
 
@@ -47,11 +53,15 @@ class Synth {
   float velocity_{0.0f};
   float amplitude_{1.0f};
   float chordSpread_{0.0f};
-  float chordNorm_{1.0f};
   float centerFreq_{440.0f};
+  float chordWeight_{0.0f};
   Waveform waveform_{Waveform::Saw};
+  int armedExtras_{0};
 
   Oscillator osc_;
+  std::array<Oscillator, kMaxPitches - 1> extraOsc_{};
+  std::atomic<int> pitchCount_{1};
+  std::array<std::atomic<int>, kMaxPitches - 1> extraNote_{};
   std::array<Oscillator, kMaxChordExtras> chordOsc_{};
   std::array<float, kMaxChordExtras> chordAmp_{};
   Envelope env_;

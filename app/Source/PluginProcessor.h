@@ -81,6 +81,8 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   bool isSerialDriving(glow::ParameterID id) const;
   /** True when an open serial route owns this PaulXStretch param id (e.g. "px.stretch"). */
   bool isSerialDrivingPx(const juce::String& paramId) const;
+  /** True when an open serial route owns this destination id (levels, px.*, …). */
+  bool isSerialDrivingId(const juce::String& paramId) const;
   bool isSerialDrivingPitch() const;
   bool isSerialPitchLive() const;
   float getDisplayedPitchMidi() const;
@@ -88,6 +90,14 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
 
   int getDroneNote() const { return droneNote_.load(); }
   void setDroneNote(int note);
+
+  static constexpr int kMaxPitches = 3;
+  int getPitchCount() const { return pitchCount_.load(); }
+  int getPitchNote(int index) const;
+  float getPitchFrequencyHz(int index) const;
+  void setPitchNote(int index, int note);
+  void addPitch();
+  void removePitch(int index);
 
   void setSerialDebugConsole(bool enabled);
   bool isSerialDebugConsole() const { return serialDebugConsole_.load(); }
@@ -146,6 +156,7 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   void syncOutputFromApvts();
   void pushDroneOn();
   void pushDroneOff();
+  void syncSynthPitches();
   void applySerialConfig(const glow::SerialConfig& cfg, bool connectSerial, juce::String& statusOut);
   void appendDebugLine(const juce::String& line);
   juce::String serialConfigToJson(const glow::SerialConfig& cfg) const;
@@ -206,6 +217,8 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
 
   std::atomic<bool> engineOn_{false};
   std::atomic<int> droneNote_{55};
+  std::atomic<int> pitchCount_{1};
+  std::array<std::atomic<int>, kMaxPitches - 1> extraNote_{};
   std::atomic<bool> serialDrivesPitch_{false};
   std::atomic<bool> serialDebugConsole_{false};
   std::array<std::atomic<bool>, static_cast<size_t>(glow::ParameterID::Count)> serialDrives_{};

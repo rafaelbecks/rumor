@@ -31,7 +31,8 @@ constexpr glow::ParameterID kModParams[] = {
 };
 
 constexpr const char* kDestNames[] = {
-    "pitch",           "midi.cc",         "amplitude",      "filter.cutoff",
+    "pitch",           "midi.cc",         "amplitude",      "route.gran.level",
+    "route.px.level",  "filter.cutoff",
     "filter.resonance","env.attack",      "env.release",    "osc.waveform",
     "osc.timbre",      "chord.spread",    "folder.drive",   "folder.mix",
     "granular.mix",    "granular.density","granular.pitch", "px.stretch",
@@ -362,7 +363,7 @@ void UmbralAudioProcessorEditor::DestinationRow::applyDefaultRangeForSelection()
 
 void UmbralAudioProcessorEditor::DestinationRow::resized() {
   auto r = getLocalBounds();
-  parameterBox.setBounds(r.removeFromLeft(110));
+  parameterBox.setBounds(r.removeFromLeft(148));
   r.removeFromLeft(4);
   if (ccSlider.isVisible()) {
     ccLabel.setBounds(r.removeFromLeft(22));
@@ -595,7 +596,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   remoteUrlEdit_.setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.55f));
   remoteUrlEdit_.setFont(brandFont_);
   remoteUrlEdit_.setJustification(juce::Justification::centredLeft);
-  remoteUrlEdit_.setTextToShowWhenEmpty("ws://host:5000", kMuted);
+  remoteUrlEdit_.setTextToShowWhenEmpty(kDefaultRemoteUrl, kMuted);
   remoteUrlEdit_.setText(processor_.getRemoteUrl(), false);
   remoteUrlEdit_.addListener(this);
   remoteButton_.setButtonText(processor_.isRemoteEnabled() ? "cortar" : "vincular");
@@ -642,6 +643,25 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   droneReadout_.setFont(brandFont_.withHeight(11.0f));
   droneReadout_.setColour(juce::Label::textColourId, kMuted);
   synthPanel_.addAndMakeVisible(droneReadout_);
+  addPitchButton_.setButtonText("+");
+  addPitchButton_.addListener(this);
+  synthPanel_.addAndMakeVisible(addPitchButton_);
+  for (int i = 0; i < 2; ++i) {
+    extraPitchLabel_[i].setText("tono " + juce::String(i + 2), juce::dontSendNotification);
+    styleLabel(extraPitchLabel_[i], brandFont_);
+    synthPanel_.addAndMakeVisible(extraPitchLabel_[i]);
+    setupCompactSlider(extraPitchSlider_[i], 0, 127, 1);
+    extraPitchSlider_[i].setNumDecimalPlacesToDisplay(0);
+    extraPitchSlider_[i].setValue(processor_.getPitchNote(i + 1), juce::dontSendNotification);
+    extraPitchSlider_[i].addListener(this);
+    synthPanel_.addAndMakeVisible(extraPitchSlider_[i]);
+    extraPitchReadout_[i].setFont(brandFont_.withHeight(11.0f));
+    extraPitchReadout_[i].setColour(juce::Label::textColourId, kMuted);
+    synthPanel_.addAndMakeVisible(extraPitchReadout_[i]);
+    extraPitchRemove_[i].setButtonText("-");
+    extraPitchRemove_[i].addListener(this);
+    synthPanel_.addAndMakeVisible(extraPitchRemove_[i]);
+  }
   waveBox_.addItemList({"sine", "saw", "square", "triangle"}, 1);
   waveBox_.setSelectedId(1, juce::dontSendNotification);
   waveBox_.addListener(this);
@@ -734,6 +754,8 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   updateDroneReadout();
   updateParamLockUi();
   updateWaveGraph();
+  shownPitchCount_ = processor_.getPitchCount();
+  resized();
   startTimerHz(15);
 }
 
@@ -758,6 +780,11 @@ UmbralAudioProcessorEditor::~UmbralAudioProcessorEditor() {
   remoteButton_.removeListener(this);
   remoteUrlEdit_.removeListener(this);
   droneSlider_.removeListener(this);
+  addPitchButton_.removeListener(this);
+  for (int i = 0; i < 2; ++i) {
+    extraPitchSlider_[i].removeListener(this);
+    extraPitchRemove_[i].removeListener(this);
+  }
 }
 
 void UmbralAudioProcessorEditor::applyBrandFont(juce::Component& root) {
@@ -793,6 +820,9 @@ void UmbralAudioProcessorEditor::styleCuteControls() {
                   static_cast<juce::Button*>(&pxToggle_),
                   static_cast<juce::Button*>(&debugToggle_),
                   static_cast<juce::Button*>(&remoteButton_),
+                  static_cast<juce::Button*>(&addPitchButton_),
+                  static_cast<juce::Button*>(&extraPitchRemove_[0]),
+                  static_cast<juce::Button*>(&extraPitchRemove_[1]),
                   static_cast<juce::Button*>(&swapOutToggle_),
                   static_cast<juce::Button*>(&monoSumToggle_)})
     tintButton(*b);
@@ -828,7 +858,8 @@ void UmbralAudioProcessorEditor::paint(juce::Graphics& g) {
 void UmbralAudioProcessorEditor::layoutSintePage() {
   auto area = sintePage_.getLocalBounds();
   if (area.isEmpty()) return;
-  const int synthH = juce::jmax(280, area.getHeight() * 62 / 100);
+  const int extra = juce::jmax(0, processor_.getPitchCount() - 1);
+  const int synthH = juce::jmax(300 + extra * (kRowH + 6), area.getHeight() * (62 + extra * 4) / 100);
   synthPanel_.setBounds(area.removeFromTop(synthH));
   area.removeFromTop(kGap);
   modPanel_.setBounds(area);
@@ -953,11 +984,43 @@ void UmbralAudioProcessorEditor::resized() {
     synth.removeFromTop(4);
     waveGraph_.setBounds(synth.removeFromTop(56));
     synth.removeFromTop(4);
+    const int pitchCount = processor_.getPitchCount();
+    addPitchButton_.setVisible(pitchCount < UmbralAudioProcessor::kMaxPitches);
+    for (int i = 0; i < 2; ++i) {
+      const bool on = pitchCount > i + 1;
+      extraPitchLabel_[i].setVisible(on);
+      extraPitchSlider_[i].setVisible(on);
+      extraPitchReadout_[i].setVisible(on);
+      extraPitchRemove_[i].setVisible(on);
+    }
     auto r2 = synth.removeFromTop(kRowH);
-    droneLabel_.setBounds(r2.removeFromLeft(48));
-    droneSlider_.setBounds(r2.removeFromLeft(juce::jmax(80, r2.getWidth() - 120)));
-    r2.removeFromLeft(4);
-    droneReadout_.setBounds(r2);
+    droneLabel_.setBounds(r2.removeFromLeft(52));
+    if (addPitchButton_.isVisible()) {
+      addPitchButton_.setBounds(r2.removeFromRight(28).reduced(0, 2));
+      r2.removeFromRight(4);
+    } else {
+      addPitchButton_.setBounds({});
+    }
+    droneReadout_.setBounds(r2.removeFromRight(128));
+    r2.removeFromRight(4);
+    droneSlider_.setBounds(r2);
+    for (int i = 0; i < 2; ++i) {
+      if (!extraPitchSlider_[i].isVisible()) {
+        extraPitchLabel_[i].setBounds({});
+        extraPitchSlider_[i].setBounds({});
+        extraPitchReadout_[i].setBounds({});
+        extraPitchRemove_[i].setBounds({});
+        continue;
+      }
+      synth.removeFromTop(4);
+      auto row = synth.removeFromTop(kRowH);
+      extraPitchLabel_[i].setBounds(row.removeFromLeft(52));
+      extraPitchRemove_[i].setBounds(row.removeFromRight(28).reduced(0, 2));
+      row.removeFromRight(4);
+      extraPitchReadout_[i].setBounds(row.removeFromRight(128));
+      row.removeFromRight(4);
+      extraPitchSlider_[i].setBounds(row);
+    }
     synth.removeFromTop(6);
     for (auto& row : synthSliders_) {
       auto rr = synth.removeFromTop(kRowH);
@@ -1191,12 +1254,24 @@ void UmbralAudioProcessorEditor::updateDroneReadout() {
   text << "  |  " << juce::String(hz, 1) << " Hz";
   if (processor_.isSerialPitchLive()) text << "  (serial)";
   droneReadout_.setText(text, juce::dontSendNotification);
+  for (int i = 0; i < 2; ++i) {
+    const float extraHz = processor_.getPitchFrequencyHz(i + 1);
+    extraPitchReadout_[i].setText(juce::String(processor_.getPitchNote(i + 1)) + "  |  " +
+                                      juce::String(extraHz, 1) + " Hz",
+                                  juce::dontSendNotification);
+  }
 }
 
 void UmbralAudioProcessorEditor::updateParamLockUi() {
   const bool pitchLocked = processor_.isSerialPitchLive();
   droneSlider_.setEnabled(!pitchLocked);
   droneSlider_.setAlpha(pitchLocked ? 0.55f : 1.0f);
+  const bool granLevelLocked = processor_.isSerialDrivingId("route.gran.level");
+  const bool pxLevelLocked = processor_.isSerialDrivingId("route.px.level");
+  granLevelSlider_.setEnabled(!granLevelLocked);
+  granLevelSlider_.setAlpha(granLevelLocked ? 0.55f : 1.0f);
+  pxLevelSlider_.setEnabled(!pxLevelLocked);
+  pxLevelSlider_.setAlpha(pxLevelLocked ? 0.55f : 1.0f);
   for (auto& row : synthSliders_) {
     const bool locked = processor_.isSerialConnected() && processor_.isSerialDriving(row->id);
     row->slider.setEnabled(!locked);
@@ -1223,6 +1298,10 @@ void UmbralAudioProcessorEditor::syncSlidersFromEngine() {
     droneSlider_.setValue(processor_.getDisplayedPitchMidi(), juce::dontSendNotification);
   else
     droneSlider_.setValue(processor_.getDroneNote(), juce::dontSendNotification);
+  for (int i = 0; i < 2; ++i) {
+    if (!extraPitchSlider_[i].isMouseButtonDown())
+      extraPitchSlider_[i].setValue(processor_.getPitchNote(i + 1), juce::dontSendNotification);
+  }
   syncingUi_ = false;
   updateDroneReadout();
   updateParamLockUi();
@@ -1326,16 +1405,30 @@ void UmbralAudioProcessorEditor::timerCallback() {
     if (pxPanel_ != nullptr) pxPanel_->refreshFromEngine();
   }
 
+  if (shownPitchCount_ != processor_.getPitchCount()) {
+    shownPitchCount_ = processor_.getPitchCount();
+    resized();
+  }
+
   syncSlidersFromEngine();
   updateWaveGraph();
   if (debugConsole_.isVisible()) appendDebugChunk(processor_.consumeDebugLog());
 }
 
 void UmbralAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
-  if (syncingUi_ || slider != &droneSlider_) return;
-  if (processor_.isSerialPitchLive()) return;
-  processor_.setDroneNote(juce::roundToInt(droneSlider_.getValue()));
-  updateDroneReadout();
+  if (syncingUi_) return;
+  if (slider == &droneSlider_) {
+    if (processor_.isSerialPitchLive()) return;
+    processor_.setDroneNote(juce::roundToInt(droneSlider_.getValue()));
+    updateDroneReadout();
+    return;
+  }
+  for (int i = 0; i < 2; ++i) {
+    if (slider != &extraPitchSlider_[i]) continue;
+    processor_.setPitchNote(i + 1, juce::roundToInt(slider->getValue()));
+    updateDroneReadout();
+    return;
+  }
 }
 
 bool UmbralAudioProcessorEditor::applyFromUi(bool connectSerial) {
@@ -1480,6 +1573,21 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
   if (button == &engineButton_) {
     processor_.setEngineOn(!processor_.isEngineOn());
     setStatus(processor_.isEngineOn() ? U8("Engine on.") : U8("Engine off."));
+    return;
+  }
+  if (button == &addPitchButton_) {
+    processor_.addPitch();
+    shownPitchCount_ = processor_.getPitchCount();
+    resized();
+    syncSlidersFromEngine();
+    return;
+  }
+  if (button == &extraPitchRemove_[0] || button == &extraPitchRemove_[1]) {
+    const int index = button == &extraPitchRemove_[0] ? 1 : 2;
+    processor_.removePitch(index);
+    shownPitchCount_ = processor_.getPitchCount();
+    resized();
+    syncSlidersFromEngine();
     return;
   }
   if (button == &remoteButton_) {

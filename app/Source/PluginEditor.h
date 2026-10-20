@@ -174,6 +174,12 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   juce::Label droneLabel_;
   juce::Slider droneSlider_;
   juce::Label droneReadout_;
+  juce::TextButton addPitchButton_;
+  juce::Label extraPitchLabel_[2];
+  juce::Slider extraPitchSlider_[2];
+  juce::Label extraPitchReadout_[2];
+  juce::TextButton extraPitchRemove_[2];
+  int shownPitchCount_{-1};
   juce::Label waveLabel_;
   juce::ComboBox waveBox_;
   juce::Label quantLabel_;

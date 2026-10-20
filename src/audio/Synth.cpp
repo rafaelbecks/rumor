@@ -12,9 +12,23 @@ constexpr int kHarmonicPartials[Synth::kMaxChordExtras] = {2, 3, 4, 5, 6, 7};
 
 }  // namespace
 
+void Synth::setPitchCount(int count) {
+  if (count < 1) count = 1;
+  if (count > kMaxPitches) count = kMaxPitches;
+  pitchCount_.store(count, std::memory_order_relaxed);
+}
+
+void Synth::setExtraNote(int index, int note) {
+  if (index < 0 || index >= kMaxPitches - 1) return;
+  if (note < 0) note = 0;
+  if (note > 127) note = 127;
+  extraNote_[static_cast<size_t>(index)].store(note, std::memory_order_relaxed);
+}
+
 void Synth::prepare(float sampleRate, int maxGrains) {
   sampleRate_ = sampleRate;
   osc_.setSampleRate(sampleRate);
+  for (auto& o : extraOsc_) o.setSampleRate(sampleRate);
   for (auto& o : chordOsc_) o.setSampleRate(sampleRate);
   env_.setSampleRate(sampleRate);
   filter_.setSampleRate(sampleRate);
@@ -27,6 +41,7 @@ void Synth::noteOn(uint8_t note, uint8_t velocity) {
   velocity_ = velocity / 127.0f;
   fundamentalHz_ = midi_math::midiNoteToFrequency(static_cast<float>(note));
   osc_.reset();
+  for (auto& o : extraOsc_) o.reset();
   for (auto& o : chordOsc_) o.reset();
   env_.noteOn(velocity_);
   if (performance_) performance_->setRoot(static_cast<int>(note));
@@ -76,6 +91,19 @@ void Synth::pullParameters() {
   waveform_ = waveformFromParam(wavePos);
   osc_.setWaveformPosition(wavePos);
   osc_.setSineTimbre(sineTimbre);
+  int extras = pitchCount_.load(std::memory_order_relaxed) - 1;
+  if (extras < 0) extras = 0;
+  if (extras > kMaxPitches - 1) extras = kMaxPitches - 1;
+  for (int i = 0; i < kMaxPitches - 1; ++i) {
+    auto& voice = extraOsc_[static_cast<size_t>(i)];
+    voice.setWaveformPosition(wavePos);
+    voice.setSineTimbre(sineTimbre);
+    float hz = midi_math::midiNoteToFrequency(
+        static_cast<float>(extraNote_[static_cast<size_t>(i)].load(std::memory_order_relaxed)));
+    voice.setFrequency(midi_math::clamp(hz, 20.0f, 8000.0f));
+    if (i >= armedExtras_ && i < extras) voice.reset();
+  }
+  armedExtras_ = extras;
   for (auto& o : chordOsc_) {
     o.setWaveformPosition(wavePos);
     o.setSineTimbre(sineTimbre);
@@ -108,7 +136,7 @@ void Synth::pullParameters() {
     voiceHz = midi_math::clamp(voiceHz, 20.0f, 8000.0f);
     chordOsc_[static_cast<size_t>(i)].setFrequency(voiceHz);
   }
-  chordNorm_ = 1.0f / activeWeight;
+  chordWeight_ = activeWeight - 1.0f;
 
   filter_.setCutoff(registry_->value(ParameterID::FilterCutoff));
   filter_.setResonance(registry_->value(ParameterID::FilterResonance));
@@ -136,13 +164,18 @@ void Synth::process(float* outL, float* outR, int numFrames) {
   for (int i = 0; i < numFrames; ++i) {
     const float env = env_.process();
     float sample = osc_.process();
+    int voices = 1;
+    for (int v = 0; v < armedExtras_; ++v) {
+      sample += extraOsc_[static_cast<size_t>(v)].process();
+      ++voices;
+    }
     for (int v = 0; v < kMaxChordExtras; ++v) {
       const float a = chordAmp_[static_cast<size_t>(v)];
       if (a > 0.0001f) {
         sample += chordOsc_[static_cast<size_t>(v)].process() * a;
       }
     }
-    sample *= chordNorm_;
+    sample /= static_cast<float>(voices) + chordWeight_;
     sample *= env * 0.55f;
 
     sample = folder_.process(sample);

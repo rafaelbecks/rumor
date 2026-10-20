@@ -217,6 +217,7 @@ PaulXStretchPanel::PaulXStretchPanel(UmbralAudioProcessor& processor) : processo
   useEngineButton_.setButtonText("activar + start");
   freezeToggle_.setButtonText("freeze");
   pauseToggle_.setButtonText("pause");
+  dryToggle_.setButtonText("sin efectos");
 
   for (auto* b : {&loadButton_, &clearButton_, &useEngineButton_}) {
     b->addListener(this);
@@ -228,8 +229,12 @@ PaulXStretchPanel::PaulXStretchPanel(UmbralAudioProcessor& processor) : processo
   pauseToggle_.addListener(this);
   freezeToggle_.setColour(juce::ToggleButton::textColourId, kText);
   pauseToggle_.setColour(juce::ToggleButton::textColourId, kText);
+  dryToggle_.setColour(juce::ToggleButton::textColourId, kText);
+  dryToggle_.setColour(juce::ToggleButton::tickColourId, kAccent);
   addAndMakeVisible(freezeToggle_);
   addAndMakeVisible(pauseToggle_);
+  dryToggle_.addListener(this);
+  addAndMakeVisible(dryToggle_);
 
   addSlider("px.main_volume", "main vol", -24.0, 12.0, 0.1);
   addSlider("px.stretch", "stretch", 0.1, 1024.0, 0.01);
@@ -264,6 +269,7 @@ PaulXStretchPanel::~PaulXStretchPanel() {
   for (auto* b : {&loadButton_, &clearButton_, &useEngineButton_}) b->removeListener(this);
   freezeToggle_.removeListener(this);
   pauseToggle_.removeListener(this);
+  dryToggle_.removeListener(this);
   for (auto& row : sliders_) row->slider.removeListener(this);
 }
 
@@ -350,6 +356,8 @@ void PaulXStretchPanel::resized() {
   freezeToggle_.setBounds(transport.removeFromLeft(80));
   transport.removeFromLeft(8);
   pauseToggle_.setBounds(transport.removeFromLeft(80));
+  transport.removeFromLeft(8);
+  dryToggle_.setBounds(transport.removeFromLeft(120));
 
   area.removeFromTop(kGap);
   if (sourceWaveform_ != nullptr) {
@@ -388,11 +396,13 @@ void PaulXStretchPanel::refreshFromEngine() {
       row->slider.setValue(v, juce::dontSendNotification);
   }
 
-  float freeze = 0.0f, pause = 0.0f;
+  float freeze = 0.0f, pause = 0.0f, dry = 0.0f;
   processor_.getPaulXStretchParameter("px.freeze", freeze);
   processor_.getPaulXStretchParameter("px.pause", pause);
+  processor_.getPaulXStretchParameter("px.dry", dry);
   freezeToggle_.setToggleState(freeze >= 0.5f, juce::dontSendNotification);
   pauseToggle_.setToggleState(pause >= 0.5f, juce::dontSendNotification);
+  dryToggle_.setToggleState(dry >= 0.5f, juce::dontSendNotification);
 
   for (auto& row : toggles_) {
     float v = 0.0f;
@@ -488,6 +498,10 @@ void PaulXStretchPanel::buttonClicked(juce::Button* button) {
   }
   if (button == &pauseToggle_) {
     processor_.setPaulXStretchParameter("px.pause", pauseToggle_.getToggleState() ? 1.0f : 0.0f);
+    return;
+  }
+  if (button == &dryToggle_) {
+    processor_.setPaulXStretchParameter("px.dry", dryToggle_.getToggleState() ? 1.0f : 0.0f);
     return;
   }
   for (auto& row : toggles_) {

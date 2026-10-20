@@ -18,11 +18,9 @@ Por defecto escucha en el puerto 5000. En macOS ese puerto lo suele ocupar AirPl
 PORT=8080 npm start
 ```
 
-Abrí `http://<esta-máquina>:8080`. En RUMOR, pestaña **serial**, pegá `ws://<esta-máquina>:8080` y tocá **vincular**.
+Abrí `http://<esta-máquina>:8080`. En RUMOR, pestaña **serial**, la URL ya viene con `https://rumor-remote.onrender.com`. Para un hub en la misma red, cambiala por `ws://<esta-máquina>:8080` y tocá **vincular**.
 
-`HOST` (por defecto `0.0.0.0`) es opcional. Si definís `RUMOR_TOKEN`, la URL del plugin y la de la página tienen que llevar el mismo `?token=`.
-
-El plugin todavía no habla `wss://`.
+`https://` se abre como `wss://` y `http://` como `ws://`. `HOST` (por defecto `0.0.0.0`) es opcional. Si definís `RUMOR_TOKEN`, la URL del plugin y la de la página tienen que llevar el mismo `?token=`.
 
 ## Render
 
@@ -30,7 +28,7 @@ Hay un blueprint en `render.yaml`, en la raíz del repo.
 
 1. En Render: **New → Blueprint**, y apuntá a este repositorio. También se puede crear un Web Service a mano con directorio raíz `remote`, build `npm ci` y start `npm start`.
 2. El health check es `/health`. Render inyecta `PORT`; no hace falta definirlo.
-3. La página queda en `https://<servicio>.onrender.com`.
-4. El plugin no puede usar esa URL: Render solo expone HTTPS y el cliente JUCE todavía no abre `wss://`. Para **vincular**, el hub tiene que ser alcanzable con `ws://` (la misma red, o un host sin TLS).
+3. La página queda en `https://rumor-remote.onrender.com` (o la URL del servicio).
+4. Esa dirección es la que aparece por defecto en el plugin. Tocá **vincular**. Un hub local sigue usando `ws://`.
 
 `RUMOR_TOKEN`, si lo usás, se carga en el panel de entorno de Render. No lo pongas en el repo.

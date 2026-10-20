@@ -259,7 +259,8 @@ void SerialPitch::processIncomingBytes(const char* buf, int n, SerialAdcParser& 
         havePitch = true;
       } else if (route.destination == SerialDestination::MidiCc) {
         if (onMidiCc_) onMidiCc_(route.midiCc, mapped);
-      } else if (serialDestinationIsPaulXStretch(route.destination)) {
+      } else if (serialDestinationIsPaulXStretch(route.destination) ||
+                 serialDestinationIsOutputLevel(route.destination)) {
         if (onEngineParam_) onEngineParam_(serialDestinationName(route.destination), mapped);
       } else {
         ParameterID paramId = ParameterID::Count;

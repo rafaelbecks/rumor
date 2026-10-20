@@ -1,4 +1,5 @@
 #include "RemoteLink.h"
+#include "RemoteTls.h"
 
 #include <cstring>
 #include <vector>
@@ -17,17 +18,16 @@ struct WsUrl {
   juce::String host;
   int port{80};
   juce::String path;
+  bool secure{false};
 };
 
 bool parseWsUrl(juce::String text, WsUrl& out, juce::String& error) {
   text = text.trim();
   if (text.startsWithIgnoreCase("http://")) text = "ws://" + text.substring(7);
-  if (text.startsWithIgnoreCase("https://") || text.startsWithIgnoreCase("wss://")) {
-    error = "remoto: wss no disponible";
-    return false;
-  }
+  else if (text.startsWithIgnoreCase("https://")) text = "wss://" + text.substring(8);
   if (!text.contains("://")) text = "ws://" + text;
-  if (!text.startsWithIgnoreCase("ws://")) {
+  const bool secure = text.startsWithIgnoreCase("wss://");
+  if (!secure && !text.startsWithIgnoreCase("ws://")) {
     error = "remoto: url invalida";
     return false;
   }
@@ -60,8 +60,9 @@ bool parseWsUrl(juce::String text, WsUrl& out, juce::String& error) {
     out.port = hostport.substring(colon + 1).getIntValue();
   } else {
     out.host = hostport;
-    out.port = 80;
+    out.port = secure ? 443 : 80;
   }
+  out.secure = secure;
   if (out.host.isEmpty() || out.port <= 0 || out.port > 65535) {
     error = "remoto: url invalida";
     return false;
@@ -101,7 +102,26 @@ void harden(juce::StreamingSocket& socket) {
   ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, opt, static_cast<socklen_t>(sizeof(one)));
 }
 
-bool sendFrame(juce::StreamingSocket& socket, uint8_t opcode, const void* data, size_t size) {
+struct Io {
+  juce::StreamingSocket* tcp{nullptr};
+  TlsSession* tls{nullptr};
+
+  int write(const void* data, int size) const {
+    if (tls != nullptr) return tls->write(data, size);
+    return sendRaw(*tcp, data, size);
+  }
+
+  int read(void* dst, int size, int timeoutMs) const {
+    if (tls != nullptr) return tls->read(dst, size, timeoutMs);
+    const int ready = tcp->waitUntilReady(true, timeoutMs);
+    if (ready < 0) return -1;
+    if (ready == 0) return 0;
+    const int got = tcp->read(dst, size, false);
+    return got <= 0 ? -1 : got;
+  }
+};
+
+bool sendFrame(Io& io, uint8_t opcode, const void* data, size_t size) {
   uint8_t header[14];
   size_t n = 0;
   header[n++] = static_cast<uint8_t>(0x80 | opcode);
@@ -121,21 +141,19 @@ bool sendFrame(juce::StreamingSocket& socket, uint8_t opcode, const void* data, 
   for (auto& byte : mask) byte = static_cast<uint8_t>(rng.nextInt(256));
   std::memcpy(header + n, mask, 4);
   n += 4;
-  if (sendRaw(socket, header, static_cast<int>(n)) < 0) return false;
+  if (io.write(header, static_cast<int>(n)) < 0) return false;
 
   std::vector<uint8_t> masked(size);
   const auto* src = static_cast<const uint8_t*>(data);
   for (size_t i = 0; i < size; ++i) masked[i] = static_cast<uint8_t>(src[i] ^ mask[i & 3]);
-  return size == 0 || sendRaw(socket, masked.data(), static_cast<int>(size)) >= 0;
+  return size == 0 || io.write(masked.data(), static_cast<int>(size)) >= 0;
 }
 
-bool readSome(juce::StreamingSocket& socket, std::vector<uint8_t>& buf, int timeoutMs) {
-  const int ready = socket.waitUntilReady(true, timeoutMs);
-  if (ready < 0) return false;
-  if (ready == 0) return true;
+bool readSome(Io& io, std::vector<uint8_t>& buf, int timeoutMs) {
   uint8_t chunk[4096];
-  const int got = socket.read(chunk, static_cast<int>(sizeof(chunk)), false);
-  if (got <= 0) return false;
+  const int got = io.read(chunk, static_cast<int>(sizeof(chunk)), timeoutMs);
+  if (got < 0) return false;
+  if (got == 0) return true;
   buf.insert(buf.end(), chunk, chunk + got);
   return buf.size() <= (1u << 20);
 }
@@ -173,11 +191,12 @@ int takeFrame(std::vector<uint8_t>& buf, uint8_t& opcode, bool& fin, std::vector
   return 1;
 }
 
-bool handshake(juce::StreamingSocket& socket, const WsUrl& url) {
+bool handshake(Io& io, const WsUrl& url) {
   uint8_t key[16];
   auto& rng = juce::Random::getSystemRandom();
   for (auto& byte : key) byte = static_cast<uint8_t>(rng.nextInt(256));
-  const auto hostHeader = url.host + ":" + juce::String(url.port);
+  const bool defaultPort = url.secure ? url.port == 443 : url.port == 80;
+  const auto hostHeader = defaultPort ? url.host : url.host + ":" + juce::String(url.port);
   juce::String request;
   request << "GET " << url.path << " HTTP/1.1\r\n"
           << "Host: " << hostHeader << "\r\n"
@@ -185,13 +204,12 @@ bool handshake(juce::StreamingSocket& socket, const WsUrl& url) {
           << "Connection: Upgrade\r\n"
           << "Sec-WebSocket-Key: " << juce::Base64::toBase64(key, sizeof(key)) << "\r\n"
           << "Sec-WebSocket-Version: 13\r\n\r\n";
-  if (sendRaw(socket, request.toRawUTF8(), static_cast<int>(request.getNumBytesAsUTF8())) < 0)
-    return false;
+  if (io.write(request.toRawUTF8(), static_cast<int>(request.getNumBytesAsUTF8())) < 0) return false;
 
   std::vector<uint8_t> buf;
   const auto deadline = juce::Time::getMillisecondCounter() + 3000;
   while (juce::Time::getMillisecondCounter() < deadline) {
-    if (!readSome(socket, buf, 200)) return false;
+    if (!readSome(io, buf, 200)) return false;
     const std::string text(buf.begin(), buf.end());
     const auto end = text.find("\r\n\r\n");
     if (end == std::string::npos) continue;
@@ -292,7 +310,23 @@ void RemoteLink::run() {
     }
 
     harden(socket);
-    if (!handshake(socket, parsed) || epoch_.load() != epoch) {
+    TlsSession tls;
+    Io io{&socket, nullptr};
+    if (parsed.secure) {
+      if (!tls.handshake(socket.getRawSocketHandle(), parsed.host, 8000) || epoch_.load() != epoch) {
+        tls.close();
+        socket.close();
+        connected_.store(false);
+        if (epoch_.load() == epoch) {
+          setStatus("remoto: tls fallo");
+          wait(1000);
+        }
+        continue;
+      }
+      io.tls = &tls;
+    }
+    if (!handshake(io, parsed) || epoch_.load() != epoch) {
+      tls.close();
       socket.close();
       connected_.store(false);
       if (epoch_.load() == epoch) {
@@ -304,7 +338,7 @@ void RemoteLink::run() {
 
     if (hello_) {
       const auto hello = hello_();
-      sendFrame(socket, 0x1, hello.toRawUTF8(), hello.getNumBytesAsUTF8());
+      sendFrame(io, 0x1, hello.toRawUTF8(), hello.getNumBytesAsUTF8());
     }
     connected_.store(true);
     setStatus("remoto: en vivo");
@@ -316,7 +350,7 @@ void RemoteLink::run() {
     bool drop = false;
 
     while (!drop && !threadShouldExit() && epoch_.load() == epoch && socket.isConnected()) {
-      if (!readSome(socket, buf, 80)) break;
+      if (!readSome(io, buf, 80)) break;
 
       uint8_t opcode = 0;
       bool fin = false;
@@ -329,7 +363,7 @@ void RemoteLink::run() {
           break;
         }
         if (opcode == 0x9) {
-          if (!sendFrame(socket, 0xA, payload.data(), payload.size())) drop = true;
+          if (!sendFrame(io, 0xA, payload.data(), payload.size())) drop = true;
           continue;
         }
         if (opcode == 0x8) {
@@ -366,20 +400,21 @@ void RemoteLink::run() {
         obj->setProperty("t", "debug");
         obj->setProperty("text", debug);
         const auto json = juce::JSON::toString(juce::var(obj), true);
-        if (!sendFrame(socket, 0x1, json.toRawUTF8(), json.getNumBytesAsUTF8())) break;
+        if (!sendFrame(io, 0x1, json.toRawUTF8(), json.getNumBytesAsUTF8())) break;
       }
 
       const auto now = juce::Time::getMillisecondCounter();
       if (state_ && static_cast<uint32_t>(now - nextState) >= 100) {
         const auto json = state_();
         if (json.isNotEmpty() &&
-            !sendFrame(socket, 0x1, json.toRawUTF8(), json.getNumBytesAsUTF8()))
+            !sendFrame(io, 0x1, json.toRawUTF8(), json.getNumBytesAsUTF8()))
           break;
         nextState = now;
       }
     }
 
     connected_.store(false);
+    tls.close();
     socket.close();
     if (!threadShouldExit() && epoch_.load() == epoch) {
       setStatus("remoto: reconectando");

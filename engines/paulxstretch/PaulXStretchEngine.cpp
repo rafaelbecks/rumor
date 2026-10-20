@@ -122,6 +122,8 @@ void PaulXStretchEngine::pushProcessParamsLocked() {
   stretch_->setRate(static_cast<double>(stretchAmount_));
   stretch_->setMainVolume(static_cast<double>(mainVolumeDb_));
   stretch_->setFreezing(freeze_);
+  stretch_->setPreviewDry(dryLoop_);
+  if (dryLoop_) stretch_->setDryPlayrate(1.0);
   stretch_->setOnsetDetection(static_cast<double>(onset_));
   stretch_->setPlayRange({static_cast<double>(soundStart_), static_cast<double>(soundEnd_)});
   stretch_->setFFTSize(fftSizeFromNorm(fftSizeNorm_));
@@ -255,6 +257,7 @@ std::vector<EngineParameterInfo> PaulXStretchEngine::parameters() const {
       {"px.sound_end", "Sound end", 0.0f, 1.0f, 1.0f, true},
       {"px.freeze", "Freeze", 0.0f, 1.0f, 0.0f, false},
       {"px.pause", "Pause", 0.0f, 1.0f, 0.0f, false},
+      {"px.dry", "Loop sin efectos", 0.0f, 1.0f, 0.0f, false},
       {"px.enab_harmonics", "Harmonics", 0.0f, 1.0f, 0.0f, false},
       {"px.enab_octaves", "Octaves", 0.0f, 1.0f, 0.0f, false},
       {"px.enab_freqshift", "Freq shift", 0.0f, 1.0f, 0.0f, false},
@@ -310,6 +313,17 @@ bool PaulXStretchEngine::setParameter(std::string_view id, float value) {
         unpauseLocked();
     }
     return true;
+  } else if (id == "px.dry") {
+    const bool next = value >= 0.5f;
+    const bool changed = next != dryLoop_;
+    dryLoop_ = next;
+    if (stretch_ != nullptr) {
+      stretch_->setLoopingEnabled(true);
+      stretch_->setPreviewDry(dryLoop_);
+      if (dryLoop_) stretch_->setDryPlayrate(1.0);
+      if (changed && buffered_ != nullptr) ensureBufferingLocked();
+    }
+    return true;
   } else if (setBool("px.enab_harmonics", 0) || setBool("px.enab_octaves", 1) ||
              setBool("px.enab_freqshift", 2) || setBool("px.enab_pitchshift", 3) ||
              setBool("px.enab_spread", 4) || setBool("px.enab_filter", 5) ||
@@ -352,6 +366,8 @@ bool PaulXStretchEngine::getParameter(std::string_view id, float& valueOut) cons
     valueOut = freeze_ ? 1.0f : 0.0f;
   else if (id == "px.pause")
     valueOut = paused_ ? 1.0f : 0.0f;
+  else if (id == "px.dry")
+    valueOut = dryLoop_ ? 1.0f : 0.0f;
   else if (id == "px.enab_harmonics")
     valueOut = spectralEnable_[0] ? 1.0f : 0.0f;
   else if (id == "px.enab_octaves")

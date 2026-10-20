@@ -61,6 +61,8 @@ enum class SerialDestination {
   PxMainVolume,
   PxFftSize,
   PxSpread,
+  GranLevel,  // salida sinte level, route.gran.level
+  PxLevel,    // salida paulxstretch level, route.px.level
   Count
 };
 
@@ -87,6 +89,8 @@ inline const char* serialDestinationName(SerialDestination destination) {
     case SerialDestination::PxMainVolume: return "px.main_volume";
     case SerialDestination::PxFftSize: return "px.fft_size";
     case SerialDestination::PxSpread: return "px.spread";
+    case SerialDestination::GranLevel: return "route.gran.level";
+    case SerialDestination::PxLevel: return "route.px.level";
     case SerialDestination::Count: break;
   }
   return "pitch";
@@ -179,6 +183,14 @@ inline bool serialDestinationFromName(std::string_view name, SerialDestination& 
     out = SerialDestination::PxSpread;
     return true;
   }
+  if (name == "route.gran.level" || name == "sinte.level" || name == "sinte.nivel") {
+    out = SerialDestination::GranLevel;
+    return true;
+  }
+  if (name == "route.px.level" || name == "px.level" || name == "px.nivel") {
+    out = SerialDestination::PxLevel;
+    return true;
+  }
   // Avoid bare "mix" → granular (ambiguous with folder.mix); keep old alias for compat.
   if (name == "mix") {
     out = SerialDestination::GrainMix;
@@ -230,6 +242,8 @@ inline bool serialDestinationToParameter(SerialDestination destination, Paramete
     case SerialDestination::PxMainVolume:
     case SerialDestination::PxFftSize:
     case SerialDestination::PxSpread:
+    case SerialDestination::GranLevel:
+    case SerialDestination::PxLevel:
     case SerialDestination::Count:
       break;
   }
@@ -245,9 +259,15 @@ inline bool serialDestinationIsPaulXStretch(SerialDestination destination) {
     case SerialDestination::PxFftSize:
     case SerialDestination::PxSpread:
       return true;
+    case SerialDestination::GranLevel:
+    case SerialDestination::PxLevel:
     default:
       return false;
   }
+}
+
+inline bool serialDestinationIsOutputLevel(SerialDestination destination) {
+  return destination == SerialDestination::GranLevel || destination == SerialDestination::PxLevel;
 }
 
 /** One serial reading mapped onto a destination. Up to kSerialMaxDestinations. */
@@ -289,6 +309,8 @@ inline void serialDestinationLimits(SerialDestination destination, float& minimu
     case SerialDestination::FolderDrive:
     case SerialDestination::FolderMix:
     case SerialDestination::SineTimbre:
+    case SerialDestination::GranLevel:
+    case SerialDestination::PxLevel:
       minimum = 0.0f;
       maximum = 1.0f;
       return;
@@ -419,6 +441,8 @@ inline void serialDestinationDefaultRange(SerialDestination destination, float& 
     case SerialDestination::FolderDrive:
     case SerialDestination::FolderMix:
     case SerialDestination::SineTimbre:
+    case SerialDestination::GranLevel:
+    case SerialDestination::PxLevel:
       low = 0.0f;
       high = 1.0f;
       return;

@@ -18,6 +18,8 @@ const TYPES = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
 };
 
 function tokenOk(got) {
@@ -47,8 +49,11 @@ function serve(req, res) {
   }
   readFile(file)
     .then((buf) => {
+      const type = rel === "manifest.json"
+        ? "application/manifest+json"
+        : TYPES[extname(file)] || "application/octet-stream";
       res.writeHead(200, {
-        "content-type": TYPES[extname(file)] || "application/octet-stream",
+        "content-type": type,
         "cache-control": "no-cache",
       });
       res.end(buf);

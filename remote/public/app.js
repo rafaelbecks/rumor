@@ -231,8 +231,7 @@ function build() {
     <section class="card">
       <div class="row"><label>wave</label><select id="wave">${waves}</select><label>scale</label><select id="scale">${scales}</select></div>
       <canvas class="wave" id="waveCanvas" height="72"></canvas>
-      <label class="param"><span>drone</span><input id="drone" type="range" min="0" max="127" step="1"><output id="droneOut">55</output></label>
-      <div class="readout" id="droneReadout"></div>
+      <div id="pitches"></div>
       ${rows(cat, SYNTH)}
     </section>
     <section class="card"><h2>modulacion</h2>${rows(cat, MOD)}</section>`;
@@ -252,6 +251,7 @@ function build() {
       <div class="switches">
         <label class="check"><input id="pxFreeze" type="checkbox" data-param="px.freeze">freeze</label>
         <label class="check"><input id="pxPause" type="checkbox" data-param="px.pause">pause</label>
+        <label class="check"><input id="pxDry" type="checkbox" data-param="px.dry">sin efectos</label>
       </div>
       <canvas class="px" id="pxCanvas" height="96"></canvas>
       <div class="split">
@@ -303,11 +303,23 @@ function bindStatic() {
     drawWave();
   };
   $("scale").onchange = () => cmd({ t: "setConfig", config: { quantize: $("scale").value } });
-  $("drone").oninput = () => {
-    $("droneOut").textContent = $("drone").value;
-    cmd({ t: "setParam", id: "drone", value: Number($("drone").value) });
-    drawWave();
-  };
+  $("pitches").addEventListener("input", (event) => {
+    const input = event.target.closest("[data-pitch]");
+    if (!input) return;
+    const index = Number(input.dataset.pitch);
+    const note = Number(input.value);
+    const out = input.parentElement.querySelector("output");
+    if (out) out.textContent = String(note);
+    const hz = input.closest(".pitch")?.querySelector(".readout");
+    if (hz && index > 0) hz.textContent = `${pitchHz(note).toFixed(1)} Hz`;
+    cmd({ t: "setParam", id: index === 0 ? "drone" : `pitch.${index + 1}`, value: note });
+  });
+  $("pitches").addEventListener("click", (event) => {
+    const add = event.target.closest("[data-add-pitch]");
+    const remove = event.target.closest("[data-remove-pitch]");
+    if (add) cmd({ t: "setParam", id: "pitch.add", value: 1 });
+    if (remove) cmd({ t: "setParam", id: "pitch.remove", value: Number(remove.dataset.removePitch) });
+  });
   $("pxLoad").onclick = () => {
     const path = $("pxPath").value.trim();
     if (path) cmd({ t: "pxSource", path });
@@ -408,6 +420,58 @@ function fillSelect(select, options, value) {
   if (document.activeElement !== select && options.some((option) => option.value === value)) select.value = value;
 }
 
+function pitchHz(note) {
+  return 440 * 2 ** ((Number(note) - 69) / 12);
+}
+
+function paintPitches(state, locked) {
+  const host = $("pitches");
+  if (!host) return;
+  const notes = Array.isArray(state.pitches) && state.pitches.length
+    ? state.pitches.map((note) => Number(note))
+    : [Number(state.drone ?? 55)];
+  const hzs = Array.isArray(state.pitchHz) ? state.pitchHz : [];
+  if (Number(host.dataset.count) !== notes.length) {
+    host.dataset.count = String(notes.length);
+    host.innerHTML = notes.map((note, index) => {
+      const action = index > 0
+        ? `<button type="button" data-remove-pitch="${index}">−</button>`
+        : (notes.length < 3 ? `<button type="button" data-add-pitch>+</button>` : "");
+      return `
+      <div class="pitch">
+        <label class="param">
+          <span>${index === 0 ? "drone" : `tono ${index + 1}`}</span>
+          <input data-pitch="${index}" type="range" min="0" max="127" step="1" value="${note}">
+          <output>${note}</output>
+        </label>
+        ${action}
+        <div class="readout" data-pitch-hz="${index}"></div>
+      </div>`;
+    }).join("");
+  }
+  notes.forEach((note, index) => {
+    const input = host.querySelector(`[data-pitch="${index}"]`);
+    if (!input) return;
+    if (document.activeElement !== input) {
+      const shown = index === 0 ? Number(state.drone ?? note) : note;
+      input.value = String(shown);
+      const out = input.parentElement.querySelector("output");
+      if (out) out.textContent = input.value;
+    }
+    input.disabled = index === 0 && locked.has("drone");
+    const hzNode = host.querySelector(`[data-pitch-hz="${index}"]`);
+    if (!hzNode) return;
+    if (index === 0) {
+      const midiNote = Number(state.pitch);
+      const midiText = Math.abs(midiNote - Math.round(midiNote)) < 0.05 ? String(Math.round(midiNote)) : midiNote.toFixed(2);
+      hzNode.textContent = `MIDI ${midiText}  |  ${Number(state.hz).toFixed(1)} Hz${locked.has("drone") ? "  (serial)" : ""}`;
+    } else {
+      const hz = hzs[index] != null ? Number(hzs[index]) : pitchHz(input.value);
+      hzNode.textContent = `${hz.toFixed(1)} Hz`;
+    }
+  });
+}
+
 function paint() {
   const state = ui.state;
   if (!state || !ui.catalog || !$("port")) return;
@@ -456,17 +520,9 @@ function paint() {
   paintToggle($("engine"), !!state.engineOn, state.engineOn ? "stop" : "start");
   paintToggle($("granular"), !!state.granular, "sinte");
   paintToggle($("pxEnable"), !!state.paulxstretch, "paulxstretch");
-  const drone = $("drone");
-  if (drone && document.activeElement !== drone) {
-    drone.value = state.drone ?? 55;
-    $("droneOut").textContent = drone.value;
-  }
-  drone.disabled = locked.has("drone");
+  paintPitches(state, locked);
   setSelect($("wave"), config.waveform);
   setSelect($("scale"), config.quantize);
-  const midiNote = Number(state.pitch);
-  const midiText = Math.abs(midiNote - Math.round(midiNote)) < 0.05 ? String(Math.round(midiNote)) : midiNote.toFixed(2);
-  $("droneReadout").textContent = `MIDI ${midiText}  |  ${Number(state.hz).toFixed(1)} Hz${locked.has("drone") ? "  (serial)" : ""}`;
 
   document.querySelectorAll("[data-param]").forEach((input) => {
     const id = input.dataset.param;
@@ -682,3 +738,4 @@ window.addEventListener("resize", () => {
 });
 connect();
 showTab("sinte");
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

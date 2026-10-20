@@ -93,6 +93,7 @@ class PaulXStretchPanel : public juce::Component,
   juce::TextButton useEngineButton_;
   juce::ToggleButton freezeToggle_;
   juce::ToggleButton pauseToggle_;
+  juce::ToggleButton dryToggle_;
 
   juce::Label modulesLabel_;
   std::vector<std::unique_ptr<SliderRow>> sliders_;

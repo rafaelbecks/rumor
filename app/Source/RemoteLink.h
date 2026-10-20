@@ -7,7 +7,9 @@
 #include <functional>
 #include <memory>
 
-/** Outbound WebSocket to the RUMOR remote hub (`ws://host:port/device`). */
+/** Outbound WebSocket to the RUMOR remote hub (`ws://` or `wss://`, from the pasted URL). */
+inline constexpr const char* kDefaultRemoteUrl = "https://rumor-remote.onrender.com";
+
 class RemoteLink : private juce::Thread {
  public:
   using HelloFn = std::function<juce::String()>;

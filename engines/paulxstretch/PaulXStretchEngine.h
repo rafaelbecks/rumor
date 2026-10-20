@@ -92,6 +92,7 @@ class PaulXStretchEngine final : public IAudioEngine {
   float soundEnd_{1.0f};
   bool freeze_{false};
   bool paused_{false};
+  bool dryLoop_{false};
   std::array<bool, 9> spectralEnable_{
       false, false, false, false, false, false, false, false, false};
 };

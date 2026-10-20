@@ -244,6 +244,21 @@ select:disabled {
 
 .param output { text-align: right; color: var(--text); font-size: 13px; }
 
+.pitch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.pitch .param { margin: 4px 0; }
+.pitch .readout { grid-column: 1; }
+.pitch button {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
