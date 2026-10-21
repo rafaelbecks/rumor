@@ -165,9 +165,13 @@ if(RUMOR_BUILD_PLUGIN)
     PRIVATE ${RUMOR_PLUGIN_LIBS}
     PUBLIC
       juce::juce_recommended_config_flags
-      juce::juce_recommended_lto_flags
       juce::juce_recommended_warning_flags
   )
+  # GCC LTO on the 16 GB ARM CI runner exhausts RAM while compiling the plugin
+  # and the compiler dies without an error line. Clang and MSVC keep LTO.
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_libraries(Rumor PUBLIC juce::juce_recommended_lto_flags)
+  endif()
 endif()
 
 # --- Tests (granular / serial; no JUCE required) ----------------------------

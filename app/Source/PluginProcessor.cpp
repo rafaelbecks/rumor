@@ -632,7 +632,8 @@ bool UmbralAudioProcessor::applyConfig(glow::SerialConfig cfg, juce::String& sta
   for (const auto& route : cfg.destinations) {
     float limLo = 0, limHi = 1;
     glow::serialDestinationLimits(route.destination, limLo, limHi);
-    if (route.min == route.max || route.min < limLo || route.min > limHi || route.max < limLo ||
+    const bool emptySpan = !(route.min < route.max) && !(route.max < route.min);
+    if (emptySpan || route.min < limLo || route.min > limHi || route.max < limLo ||
         route.max > limHi) {
       statusOut = juce::String("Invalid range for ") + glow::serialDestinationName(route.destination);
       return false;

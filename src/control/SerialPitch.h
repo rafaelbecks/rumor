@@ -259,9 +259,24 @@ inline bool serialDestinationIsPaulXStretch(SerialDestination destination) {
     case SerialDestination::PxFftSize:
     case SerialDestination::PxSpread:
       return true;
+    case SerialDestination::Pitch:
+    case SerialDestination::ChordSpread:
+    case SerialDestination::FilterCutoff:
+    case SerialDestination::FilterResonance:
+    case SerialDestination::GrainMix:
+    case SerialDestination::GrainDensity:
+    case SerialDestination::GrainPitch:
+    case SerialDestination::Amplitude:
+    case SerialDestination::FolderDrive:
+    case SerialDestination::FolderMix:
+    case SerialDestination::Attack:
+    case SerialDestination::Release:
+    case SerialDestination::Waveform:
+    case SerialDestination::SineTimbre:
+    case SerialDestination::MidiCc:
     case SerialDestination::GranLevel:
     case SerialDestination::PxLevel:
-    default:
+    case SerialDestination::Count:
       return false;
   }
 }
@@ -460,7 +475,7 @@ inline void serialDestinationDefaultRange(SerialDestination destination, float& 
 inline float serialMap(float raw, float inLow, float inHigh, float outLow, float outHigh) {
   const float span = inHigh - inLow;
   float t = 0.0f;
-  if (span != 0.0f) t = (raw - inLow) / span;
+  if (span < 0.0f || span > 0.0f) t = (raw - inLow) / span;
   t = midi_math::clamp(t, 0.0f, 1.0f);
   return outLow + t * (outHigh - outLow);
 }

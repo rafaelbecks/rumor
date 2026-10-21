@@ -86,7 +86,9 @@ jobs:
             -DRUMOR_BUILD_PLUGIN=ON \
             -DRUMOR_BUILD_TESTS=ON
       - name: Build Standalone
-        run: cmake --build build --target Rumor_Standalone -j$(nproc)
+        # 4-wide -O3 -flto on the 16 GB ARM runner was killing cc1plus with no
+        # compiler error (ninja: subcommand failed).
+        run: cmake --build build --target Rumor_Standalone -j2
       - name: Package
         run: |
           mkdir -p dist
