@@ -227,7 +227,51 @@ select:disabled {
   border-top: 1px solid var(--stroke);
 }
 
-.dest select { flex: 1 1 140px; }
+.listen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.spine {
+  width: 2px;
+  height: 16px;
+  margin: 4px 0 4px 13px;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+.dest select { flex: 1 1 120px; }
+.dest .sourceSel { flex: 1.4 1 150px; }
+
+dialog {
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(720px, calc(100vh - 24px));
+  margin: auto;
+  padding: 16px;
+  color: var(--text);
+  background: #1c1c1f;
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+dialog h2 { color: var(--accent); margin-top: 16px; }
+dialog h2:first-child { margin-top: 0; }
+
+.wskey {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.wskey input[type="number"] { width: 72px; flex: 0 0 72px; }
+.wskey .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.reading { min-width: 64px; text-align: right; color: var(--accent); font-size: 13px; }
+
+.tabs.sub button { min-height: 36px; }
 .dest input[type="number"] { width: 84px; flex: 0 0 84px; }
 .dest .cc { width: 64px; flex: 0 0 64px; }
 .live { flex: 1 1 80px; text-align: right; }

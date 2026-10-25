@@ -1,4 +1,4 @@
-const CACHE = "rumor-shell-1";
+const CACHE = "rumor-shell-2";
 const SHELL = ["/", "/style.css", "/app.js", "/bg.js", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

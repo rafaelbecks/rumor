@@ -5,7 +5,7 @@ const dot = $("dot");
 const statusEl = $("status");
 const authToken = new URLSearchParams(location.search).get("token") || "";
 
-const TABS = ["serial", "sinte", "paulxstretch", "salida"];
+const TABS = ["sensor", "sinte", "paulxstretch", "salida"];
 const SYNTH = ["osc.timbre", "amplitude", "filter.cutoff", "filter.resonance", "env.attack", "env.release", "pitch.offset"];
 const MOD = [
   "chord.spread", "folder.drive", "folder.mix", "granular.mix", "granular.density", "granular.pitch",
@@ -20,6 +20,9 @@ const ui = {
   state: null,
   lines: [],
   tab: "sinte",
+  debugTab: "serial",
+  wsLines: [],
+  wsStamp: "",
   socket: null,
   pxDrag: null,
 };
@@ -204,28 +207,46 @@ function build() {
     .map((id) => paramRow(px.get(id))).join("");
   const pxToggles = [...px.values()].filter((param) => param.group === "paulxstretch" && param.bool && param.id.startsWith("px.enab_"));
 
-  $("serial").innerHTML = `
-    <section class="card">
-      <h2>serial</h2>
-      <div class="row"><label>puerto</label><select id="port"></select><button type="button" id="refreshPorts">actualizar</button></div>
-      <div class="row"><label>baud</label><select id="baud">${BAUDS.map((baud) => `<option>${baud}</option>`).join("")}</select></div>
-      <div class="row"><label>midi out</label><select id="midiOut"></select></div>
-      <div class="row"><label>entrada</label><input id="inLo" type="number" inputmode="numeric"><input id="inHi" type="number" inputmode="numeric">
-        <label class="check"><input id="debugOn" type="checkbox">debug</label></div>
+  $("sensor").innerHTML = `
+    <section class="card" id="mapCard">
+      <div class="listen">
+        <label class="check"><input id="listenSerial" type="checkbox">serial</label>
+        <label class="check"><input id="listenWs" type="checkbox">websocket</label>
+        <button type="button" id="openConfig">config</button>
+        <label class="check"><input id="debugOn" type="checkbox">debug</label>
+      </div>
+      <div class="spine"></div>
+      <h2>destinos</h2>
       <div id="dests"></div>
       <div class="row actions">
         <button type="button" id="addDest">agregar</button>
         <button type="button" id="applyMap">aplicar</button>
-        <button type="button" class="primary" id="connectSerial">conectar</button>
-        <button type="button" id="disconnectSerial">desconectar</button>
       </div>
-      <p class="hint" id="serialHint"></p>
+      <p class="hint" id="sensorHint"></p>
     </section>
     <section class="card" id="debugCard">
-      <h2>debug</h2>
-      <div class="row"><label>filtro</label><input id="filter" placeholder="chord.spread, px.freq_shift"></div>
+      <div class="row tabs sub">
+        <button type="button" id="debugSerial" class="on">serial</button>
+        <button type="button" id="debugWs">websocket</button>
+      </div>
+      <div class="row" id="filterRow"><label>filtro</label><input id="filter" placeholder="chord.spread, px.freq_shift"></div>
       <pre id="log"></pre>
-    </section>`;
+    </section>
+    <dialog id="sensorConfig">
+      <h2>serial</h2>
+      <div class="row"><label>puerto</label><select id="port"></select><button type="button" id="refreshPorts">actualizar</button></div>
+      <div class="row"><label>baud</label><select id="baud">${BAUDS.map((baud) => `<option>${baud}</option>`).join("")}</select></div>
+      <div class="row"><label>entrada</label><input id="inLo" type="number" inputmode="numeric"><input id="inHi" type="number" inputmode="numeric"></div>
+      <h2>websocket</h2>
+      <div class="row"><label>host</label><input id="wsUrl" placeholder="ws://host:port/path" autocomplete="off"></div>
+      <div id="wsKeys"></div>
+      <p class="hint" id="wsHint">Las claves aparecen al recibir JSON.</p>
+      <div class="row actions">
+        <button type="button" id="closeConfig">cerrar</button>
+        <button type="button" class="primary" id="saveConfig">guardar</button>
+      </div>
+      <p class="hint" id="configError"></p>
+    </dialog>`;
 
   $("sinte").innerHTML = `
     <section class="card">
@@ -286,13 +307,22 @@ function build() {
 function bindStatic() {
   $("refreshPorts").onclick = () => cmd({ t: "refresh" });
   $("debugOn").onchange = () => cmd({ t: "debug", on: $("debugOn").checked });
+  $("listenSerial").onchange = () => setListen($("listenSerial").checked ? "serial" : "off");
+  $("listenWs").onchange = () => setListen($("listenWs").checked ? "websocket" : "off");
+  $("openConfig").onclick = () => {
+    const dialog = $("sensorConfig");
+    if (dialog.parentElement !== document.body) document.body.appendChild(dialog);
+    dialog.showModal();
+  };
+  $("closeConfig").onclick = () => $("sensorConfig").close();
+  $("saveConfig").onclick = saveSensorConfig;
+  $("debugSerial").onclick = () => showDebugTab("serial");
+  $("debugWs").onclick = () => showDebugTab("websocket");
   $("addDest").onclick = () => {
     const first = (ui.catalog.destinations || [])[0];
     addDestRow(first ? { parameter: first.id, min: first.lo, max: first.hi, invert: false } : {});
   };
-  $("applyMap").onclick = () => sendMap(false);
-  $("connectSerial").onclick = () => sendMap(true);
-  $("disconnectSerial").onclick = () => cmd({ t: "serial", connect: false });
+  $("applyMap").onclick = () => cmd({ t: "setConfig", config: { destinations: readDests() } });
   $("filter").oninput = paintLog;
   $("wave").onchange = () => {
     if (ui.state) {
@@ -333,7 +363,6 @@ function bindStatic() {
     cmd({ t: "setParam", id: "out.gainL", value: 1 });
     cmd({ t: "setParam", id: "out.gainR", value: 1 });
   };
-  $("midiOut").onchange = () => cmd({ t: "midi", id: $("midiOut").value });
   document.querySelectorAll("[data-param]").forEach((input) => {
     input.addEventListener("input", () => {
       const out = input.parentElement.querySelector("output");
@@ -357,13 +386,87 @@ function bindStatic() {
   pxCanvas.addEventListener("pointercancel", endPxPointer);
 }
 
-function sendMap(connectSerial) {
-  const input = [Number($("inLo").value), Number($("inHi").value)];
-  const destinations = readDests();
-  cmd({ t: "setConfig", config: { input, destinations } });
-  const serial = { t: "serial", port: $("port").value, baud: Number($("baud").value) };
-  if (connectSerial) serial.connect = true;
-  cmd(serial);
+function setListen(mode) {
+  $("listenSerial").checked = mode === "serial";
+  $("listenWs").checked = mode === "websocket";
+  cmd({ t: "listen", mode });
+}
+
+function formatReading(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(2);
+}
+
+function originChoices(state) {
+  const listen = state.sensorListen || "off";
+  const choices = [];
+  if (listen === "serial") {
+    const raw = Number(state.serial?.smoothed);
+    choices.push({ value: "", label: raw >= 0 ? `serial  ${formatReading(raw)}` : "serial" });
+  }
+  if (listen === "websocket") {
+    const latest = new Map((state.ws?.latest || []).map((item) => [item.key, item.value]));
+    for (const key of state.ws?.keys || []) {
+      if (!key.enabled || !key.key) continue;
+      const value = latest.get(key.key);
+      choices.push({
+        value: key.key,
+        label: value == null ? key.key : `${key.key}  ${formatReading(value)}`,
+      });
+    }
+  }
+  return choices;
+}
+
+function showDebugTab(name) {
+  ui.debugTab = name;
+  $("debugSerial").classList.toggle("on", name === "serial");
+  $("debugWs").classList.toggle("on", name === "websocket");
+  $("filterRow").hidden = name !== "serial";
+  paintLog();
+}
+
+function saveSensorConfig() {
+  const error = $("configError");
+  const lo = Number($("inLo").value);
+  const hi = Number($("inHi").value);
+  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo === hi || lo < 0 || hi < 0 || lo > 1000000 || hi > 1000000) {
+    error.textContent = "La entrada serial necesita dos enteros distintos, cada uno 0-1000000.";
+    return;
+  }
+  const wsKeys = [...document.querySelectorAll("#wsKeys .wskey")].map((row) => ({
+    key: row.dataset.key,
+    low: Number(row.querySelector(".lo").value),
+    high: Number(row.querySelector(".hi").value),
+    enabled: row.querySelector(".on").checked,
+  }));
+  for (const key of wsKeys) {
+    if (!(key.low < key.high) && !(key.high < key.low)) {
+      error.textContent = `Rango invalido para ${key.key}.`;
+      return;
+    }
+  }
+  error.textContent = "";
+  cmd({
+    t: "setConfig",
+    config: {
+      port: $("port").value,
+      baud: Number($("baud").value),
+      input: [lo, hi],
+      wsUrl: $("wsUrl").value.trim(),
+      wsKeys,
+    },
+  });
+  $("sensorConfig").close();
+}
+
+function noteWsPretty(pretty) {
+  const text = String(pretty || "").trim();
+  if (!text || text === ui.wsStamp) return;
+  ui.wsStamp = text;
+  ui.wsLines.push(text);
+  while (ui.wsLines.length > 40) ui.wsLines.shift();
 }
 
 function destOptions(selected) {
@@ -376,6 +479,7 @@ function addDestRow(route) {
   const row = document.createElement("div");
   row.className = "dest";
   row.innerHTML = `
+    <select class="sourceSel"></select>
     <select class="paramSel">${destOptions(route.parameter)}</select>
     <input class="cc" type="number" min="0" max="127" value="${route.cc ?? 1}" inputmode="numeric">
     <input class="min" type="number" step="any" value="${route.min ?? 0}">
@@ -393,6 +497,9 @@ function addDestRow(route) {
     }
   };
   row.querySelector(".cc").hidden = (route.parameter || "") !== "midi.cc";
+  const source = row.querySelector(".sourceSel");
+  source.dataset.source = route.source || "";
+  source.onchange = () => { source.dataset.source = source.value; };
   $("dests").appendChild(row);
 }
 
@@ -405,6 +512,8 @@ function readDests() {
       max: Number(row.querySelector(".max").value),
       invert: row.querySelector(".inv").checked,
     };
+    const source = row.querySelector(".sourceSel").dataset.source || "";
+    if (source) route.source = source;
     if (parameter === "midi.cc") route.cc = Number(row.querySelector(".cc").value);
     return route;
   });
@@ -413,9 +522,16 @@ function readDests() {
 function fillSelect(select, options, value) {
   if (!select) return;
   const sig = options.map((option) => option.value).join("\0");
+  const labels = options.map((option) => option.label).join("\0");
   if (select.dataset.sig !== sig) {
     select.dataset.sig = sig;
+    select.dataset.labels = labels;
     select.innerHTML = options.map((option) => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join("");
+  } else if (select.dataset.labels !== labels) {
+    select.dataset.labels = labels;
+    [...select.options].forEach((option, index) => {
+      if (options[index]) option.textContent = options[index].label;
+    });
   }
   if (document.activeElement !== select && options.some((option) => option.value === value)) select.value = value;
 }
@@ -464,7 +580,7 @@ function paintPitches(state, locked) {
     if (index === 0) {
       const midiNote = Number(state.pitch);
       const midiText = Math.abs(midiNote - Math.round(midiNote)) < 0.05 ? String(Math.round(midiNote)) : midiNote.toFixed(2);
-      hzNode.textContent = `MIDI ${midiText}  |  ${Number(state.hz).toFixed(1)} Hz${locked.has("drone") ? "  (serial)" : ""}`;
+      hzNode.textContent = `MIDI ${midiText}  |  ${Number(state.hz).toFixed(1)} Hz${locked.has("drone") ? "  (sensor)" : ""}`;
     } else {
       const hz = hzs[index] != null ? Number(hzs[index]) : pitchHz(input.value);
       hzNode.textContent = `${hz.toFixed(1)} Hz`;
@@ -472,26 +588,69 @@ function paintPitches(state, locked) {
   });
 }
 
+function paintSources(state) {
+  const choices = originChoices(state);
+  document.querySelectorAll("#dests .sourceSel").forEach((select) => {
+    fillSelect(select, choices, select.dataset.source || "");
+    const chosen = select.dataset.source || "";
+    if (![...select.options].some((option) => option.value === chosen)) select.selectedIndex = -1;
+  });
+}
+
+function paintWsKeys(state) {
+  const host = $("wsKeys");
+  const dialog = $("sensorConfig");
+  if (!host || !dialog) return;
+  const keys = state.ws?.keys || [];
+  const latest = new Map((state.ws?.latest || []).map((item) => [item.key, item.value]));
+  const sig = keys.map((key) => key.key).join("\0");
+  const editing = dialog.open && focusedInside(host);
+  if (host.dataset.sig !== sig && !editing) {
+    host.dataset.sig = sig;
+    host.innerHTML = keys.map((key) => `
+      <div class="wskey" data-key="${esc(key.key)}">
+        <label class="check"><input class="on" type="checkbox" ${key.enabled ? "checked" : ""}></label>
+        <span class="name">${esc(key.key)}</span>
+        <span class="reading">${latest.has(key.key) ? formatReading(latest.get(key.key)) : "—"}</span>
+        <input class="lo" type="number" step="any" value="${key.low ?? 0}">
+        <input class="hi" type="number" step="any" value="${key.high ?? 1}">
+      </div>`).join("");
+  } else {
+    host.querySelectorAll(".wskey").forEach((row) => {
+      const value = latest.get(row.dataset.key);
+      const reading = row.querySelector(".reading");
+      if (reading) reading.textContent = value == null ? "—" : formatReading(value);
+    });
+  }
+  $("wsHint").hidden = keys.length > 0;
+}
+
 function paint() {
   const state = ui.state;
-  if (!state || !ui.catalog || !$("port")) return;
+  if (!state || !ui.catalog || !$("listenSerial")) return;
   const serial = state.serial || {};
   const config = state.config || {};
   const values = state.params || {};
   const locked = new Set(state.locked || []);
   const input = config.input || serial.input || [0, 1023];
+  const ws = state.ws || {};
+  noteWsPretty(ws.pretty);
 
-  const ports = (serial.ports || []).map(String);
-  if (serial.port && !ports.includes(String(serial.port))) ports.unshift(String(serial.port));
-  fillSelect($("port"), ports.map((port) => ({ value: port, label: port })), serial.port || "");
-  if (document.activeElement !== $("baud")) $("baud").value = String(serial.baud || 9600);
-  const midi = [{ value: "", label: "host only" }, ...(state.midiOuts || []).map((device) => ({ value: device.id, label: device.name }))];
-  fillSelect($("midiOut"), midi, state.midiOut || "");
-
-  const map = $("dests")?.closest(".card");
-  if (map && !focusedInside(map)) {
+  const dialog = $("sensorConfig");
+  const editingConfig = dialog?.open && focusedInside(dialog);
+  if (!editingConfig) {
+    const ports = (serial.ports || []).map(String);
+    if (serial.port && !ports.includes(String(serial.port))) ports.unshift(String(serial.port));
+    fillSelect($("port"), [{ value: "", label: "(ninguno)" }, ...ports.map((port) => ({ value: port, label: port }))], serial.port || "");
+    if (document.activeElement !== $("baud")) $("baud").value = String(serial.baud || 9600);
     if (document.activeElement !== $("inLo")) $("inLo").value = input[0];
     if (document.activeElement !== $("inHi")) $("inHi").value = input[1];
+    if (document.activeElement !== $("wsUrl")) $("wsUrl").value = ws.url || "";
+  }
+  paintWsKeys(state);
+
+  const map = $("mapCard");
+  if (map && !focusedInside(map)) {
     const sig = JSON.stringify(config.destinations || []);
     if (map.dataset.sig !== sig) {
       map.dataset.sig = sig;
@@ -499,23 +658,35 @@ function paint() {
       for (const route of config.destinations || []) addDestRow(route);
     }
   }
+  paintSources(state);
+  if (document.activeElement !== $("listenSerial") && document.activeElement !== $("listenWs")) {
+    $("listenSerial").checked = state.sensorListen === "serial";
+    $("listenWs").checked = state.sensorListen === "websocket";
+  }
   if (document.activeElement !== $("debugOn")) $("debugOn").checked = !!state.debug;
   $("debugCard").hidden = !$("debugOn").checked && !state.debug;
-  const smoothed = Number(serial.smoothed);
-  const lo = Number($("inLo").value);
-  const hi = Number($("inHi").value);
   document.querySelectorAll("#dests .dest").forEach((row) => {
     const live = row.querySelector(".live");
-    if (smoothed < 0) {
+    const source = row.querySelector(".sourceSel").dataset.source || "";
+    const keyWindow = source ? (ws.keys || []).find((key) => key.key === source) : null;
+    const raw = source
+      ? (ws.latest || []).find((item) => item.key === source)?.value
+      : Number(serial.smoothed);
+    const lo = source ? Number(keyWindow?.low ?? 0) : Number(input[0]);
+    const hi = source ? Number(keyWindow?.high ?? 1) : Number(input[1]);
+    if (raw == null || Number(raw) < 0 && !source) {
       live.textContent = "";
       return;
     }
-    const value = mapValue(smoothed, lo, hi, Number(row.querySelector(".min").value), Number(row.querySelector(".max").value), row.querySelector(".inv").checked);
+    const value = mapValue(Number(raw), lo, hi, Number(row.querySelector(".min").value), Number(row.querySelector(".max").value), row.querySelector(".inv").checked);
     live.textContent = Number.isFinite(value) ? value.toFixed(2) : "";
   });
-  $("serialHint").textContent = serial.connected
-    ? `${serial.port} @ ${serial.baud} · raw ${serial.raw} · ${smoothed.toFixed(1)}`
-    : "serial desconectado";
+  const listen = state.sensorListen || "off";
+  $("sensorHint").textContent = listen === "serial" && serial.connected
+    ? `${serial.port} @ ${serial.baud} · raw ${serial.raw} · ${Number(serial.smoothed).toFixed(1)}`
+    : listen === "websocket"
+      ? (ws.status || (ws.connected ? "websocket: en vivo" : "websocket"))
+      : "sensor en pausa";
 
   paintToggle($("engine"), !!state.engineOn, state.engineOn ? "stop" : "start");
   paintToggle($("granular"), !!state.granular, "sinte");
@@ -563,6 +734,12 @@ function paintLog() {
   const log = $("log");
   const filter = $("filter");
   if (!log) return;
+  if (ui.debugTab === "websocket") {
+    const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.textContent = ui.wsLines.join("\n\n");
+    if (stick) log.scrollTop = log.scrollHeight;
+    return;
+  }
   const terms = (filter?.value || "").split(",").map((term) => term.trim().toLowerCase()).filter(Boolean);
   const lines = ui.lines.map((line) => {
     if (!terms.length) return line;
