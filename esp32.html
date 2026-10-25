@@ -1,0 +1,32 @@
+
+<!DOCTYPE html>
+<html>
+<body>
+  <h2>ESP32 Ultrasonic Sensor</h2>
+  <pre id="output">Connecting...</pre>
+
+  <script>
+    const ESP32_DOMAIN = "rumor-sensor.local";
+    const socket = new WebSocket(`ws://${ESP32_DOMAIN}:81/`);
+    const output = document.getElementById("output");
+
+    socket.onopen = () => {
+      output.textContent = "Connected. Waiting for readings...";
+    };
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      output.textContent = JSON.stringify(data, null, 2);
+    };
+
+    socket.onclose = () => {
+      output.textContent = "Connection closed";
+    };
+
+    socket.onerror = () => {
+      output.textContent = "WebSocket error";
+    };
+  </script>
+</body>
+</html>
+
