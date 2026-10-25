@@ -22,9 +22,9 @@ glow::SerialConfig makeDefaultConfig() {
   cfg.inputLow = 4;
   cfg.inputHigh = 16;
   cfg.destinations = {
-      {glow::SerialDestination::ChordSpread, 0.0f, 1.0f, false},
-      {glow::SerialDestination::GrainMix, 0.0f, 1.0f, false},
-      {glow::SerialDestination::Pitch, 45.0f, 65.0f, false},
+      {glow::SerialDestination::ChordSpread, 0.0f, 1.0f, false, 1, {}},
+      {glow::SerialDestination::GrainMix, 0.0f, 1.0f, false, 1, {}},
+      {glow::SerialDestination::Pitch, 45.0f, 65.0f, false, 1, {}},
   };
   return cfg;
 }
@@ -117,6 +117,7 @@ UmbralAudioProcessor::UmbralAudioProcessor()
     juce::String line;
     line << "raw=" << raw << " smoothed=" << juce::String(smoothed, 1);
     for (const auto& route : cfg.destinations) {
+      if (!glow::routeReadsSerial(route)) continue;
       float lo = route.min, hi = route.max;
       if (route.invert) std::swap(lo, hi);
       const float mapped = glow::serialMap(smoothed, static_cast<float>(cfg.inputLow),
@@ -175,9 +176,26 @@ UmbralAudioProcessor::UmbralAudioProcessor()
   remote_->start([this] { return buildRemoteHelloJson(); },
                  [this] { return buildRemoteStateJson(); },
                  [this](const juce::var& msg) { applyRemoteCommand(msg); });
+
+  sensorWs_ = std::make_unique<SensorWs>();
+  auto life = life_;
+  sensorWs_->start(
+      [this, life](const std::vector<SensorWs::Sample>& values, const juce::String& pretty) {
+        if (!life->alive.load()) return;
+        handleWsValues(values, pretty);
+      },
+      [this, life](bool) {
+        if (!life->alive.load()) return;
+        refreshSensorDrives();
+      });
 }
 
 UmbralAudioProcessor::~UmbralAudioProcessor() {
+  if (life_ != nullptr) life_->alive.store(false);
+  if (sensorWs_ != nullptr) {
+    sensorWs_->stop();
+    sensorWs_.reset();
+  }
   remotePoll_.reset();
   serialPitch_.setOnReading({});
   serialPitch_.setOnMidiCc({});
@@ -367,7 +385,8 @@ void UmbralAudioProcessor::setEngineOn(bool on) {
 #endif
   } else if (!on && was) {
     pushDroneOff();
-    disconnectSerial();
+    juce::String status;
+    setSensorListen(glow::SensorListen::Off, status);
   }
 }
 
@@ -523,9 +542,21 @@ juce::String UmbralAudioProcessor::serialConfigToJson(const glow::SerialConfig& 
     json << "    { \"parameter\": \"" << glow::serialDestinationName(d.destination) << "\"";
     if (d.destination == glow::SerialDestination::MidiCc)
       json << ", \"cc\": " << d.midiCc;
+    if (!d.source.empty()) json << ", \"source\": " << juce::JSON::toString(juce::var(juce::String(d.source)));
     json << ", \"min\": " << juce::String(d.min, 4) << ", \"max\": " << juce::String(d.max, 4)
          << ", \"invert\": " << (d.invert ? "true" : "false") << " }";
     if (i + 1 < cfg.destinations.size()) json << ",";
+    json << "\n";
+  }
+  json << "  ],\n";
+  json << "  \"wsUrl\": " << juce::JSON::toString(juce::var(juce::String(cfg.wsUrl))) << ",\n";
+  json << "  \"wsKeys\": [\n";
+  for (size_t i = 0; i < cfg.wsKeys.size(); ++i) {
+    const auto& key = cfg.wsKeys[i];
+    json << "    { \"key\": " << juce::JSON::toString(juce::var(juce::String(key.key)))
+         << ", \"low\": " << juce::String(key.low, 4) << ", \"high\": " << juce::String(key.high, 4)
+         << ", \"enabled\": " << (key.enabled ? "true" : "false") << " }";
+    if (i + 1 < cfg.wsKeys.size()) json << ",";
     json << "\n";
   }
   json << "  ]\n}\n";
@@ -560,67 +591,241 @@ void UmbralAudioProcessor::applySerialConfig(const glow::SerialConfig& cfg, bool
     performance_.setScale(glow::ScaleId::Off);
   }
 
-  // Hot-update mapping without dropping the port unless Connect asks to (re)open.
+  // Hot-update mapping without dropping the port unless the caller asks to (re)open.
   serialPitch_.setInputRange(static_cast<float>(cfg.inputLow), static_cast<float>(cfg.inputHigh));
   serialPitch_.setRoutes(cfg.destinations);
   serialPitch_.setDebug(serialDebugConsole_.load() || cfg.debug);
 
-  auto refreshSerialDrives = [this, &cfg]() {
-    for (auto& flag : serialDrives_) flag.store(false);
-    serialDrivesPitch_.store(false);
-    // Only lock UI→engine params while the port is actually open.
-    if (!serialPitch_.isOpen()) {
-      performance_.clearSerialPitch();
-      return;
-    }
-    for (const auto& route : cfg.destinations) {
-      if (route.destination == glow::SerialDestination::Pitch) {
-        serialDrivesPitch_.store(true);
-        continue;
-      }
-      if (route.destination == glow::SerialDestination::MidiCc) continue;
-      if (glow::serialDestinationIsPaulXStretch(route.destination)) continue;
-      const auto id = parameterIdFromSerialDest(route.destination);
-      if (id != glow::ParameterID::Count)
-        serialDrives_[static_cast<size_t>(id)].store(true);
-    }
-    if (!serialDrivesPitch_.load()) performance_.clearSerialPitch();
-  };
-
   if (!connectSerial) {
-    refreshSerialDrives();
-    statusOut = serialPitch_.isOpen()
-                    ? juce::String::fromUTF8("Ajustes aplicados (serial sigue conectado).")
-                    : juce::String::fromUTF8(
-                          "Ajustes aplicados. Conectar para abrir el puerto serial.");
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("Ajustes aplicados.");
     return;
   }
 
   if (cfg.port.empty()) {
-    refreshSerialDrives();
-    statusOut = juce::String::fromUTF8("Ajustes aplicados. Eleg\xc3\xad un puerto y Conectar.");
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("Eleg\xc3\xad un puerto en config.");
     return;
   }
 
   const bool samePort =
       serialPitch_.isOpen() && serialPitch_.path() == cfg.port && serialPitch_.baud() == cfg.baud;
   if (samePort) {
-    refreshSerialDrives();
-    statusOut = juce::String::fromUTF8("Ajustes aplicados \xe2\x80\x94 ya conectado a ") +
-                juce::String(cfg.port);
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("Serial conectado: ") + juce::String(cfg.port);
     return;
   }
 
   serialPitch_.close();
   if (!serialPitch_.open(cfg.port, cfg.baud)) {
-    refreshSerialDrives();
-    statusOut = juce::String::fromUTF8("Ajustes aplicados, pero fall\xc3\xb3 al abrir: ") +
-                juce::String(cfg.port);
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("No se pudo abrir: ") + juce::String(cfg.port);
     return;
   }
-  refreshSerialDrives();
+  refreshSensorDrives();
   statusOut = juce::String::fromUTF8("Serial conectado: ") + juce::String(serialPitch_.path()) +
               " @ " + juce::String(serialPitch_.baud());
+}
+
+void UmbralAudioProcessor::refreshSensorDrives() {
+  glow::SerialConfig cfg;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    cfg = serialConfig_;
+  }
+  for (auto& flag : serialDrives_) flag.store(false);
+  serialDrivesPitch_.store(false);
+  for (const auto& route : cfg.destinations) {
+    if (!routeIsLive(route)) continue;
+    if (route.destination == glow::SerialDestination::Pitch) {
+      serialDrivesPitch_.store(true);
+      continue;
+    }
+    if (route.destination == glow::SerialDestination::MidiCc) continue;
+    if (glow::serialDestinationIsPaulXStretch(route.destination)) continue;
+    const auto id = parameterIdFromSerialDest(route.destination);
+    if (id != glow::ParameterID::Count) serialDrives_[static_cast<size_t>(id)].store(true);
+  }
+  if (!serialDrivesPitch_.load()) performance_.clearSerialPitch();
+}
+
+bool UmbralAudioProcessor::routeIsLive(const glow::SerialRoute& route) const {
+  const auto listen = getSensorListen();
+  if (listen == glow::SensorListen::Serial)
+    return serialPitch_.isOpen() && glow::routeReadsSerial(route);
+  if (listen == glow::SensorListen::WebSocket)
+    return isWsConnected() && !glow::routeReadsSerial(route);
+  return false;
+}
+
+bool UmbralAudioProcessor::saveConnectionSettings(glow::SerialConfig incoming, juce::String& statusOut) {
+  if (incoming.inputLow == incoming.inputHigh || incoming.inputLow < 0 || incoming.inputHigh < 0 ||
+      incoming.inputLow > 1000000 || incoming.inputHigh > 1000000) {
+    statusOut = juce::String::fromUTF8("La entrada serial necesita dos enteros distintos, cada uno 0-1000000.");
+    return false;
+  }
+  for (const auto& key : incoming.wsKeys) {
+    const bool emptySpan = !(key.low < key.high) && !(key.high < key.low);
+    if (emptySpan) {
+      statusOut = "Rango invalido para " + juce::String(key.key) + ".";
+      return false;
+    }
+  }
+
+  auto cfg = getSerialConfig();
+  const bool portChanged = cfg.port != incoming.port || cfg.baud != incoming.baud;
+  const bool urlChanged = cfg.wsUrl != incoming.wsUrl;
+  cfg.port = std::move(incoming.port);
+  cfg.baud = incoming.baud;
+  cfg.inputLow = incoming.inputLow;
+  cfg.inputHigh = incoming.inputHigh;
+  cfg.wsUrl = std::move(incoming.wsUrl);
+  cfg.wsKeys = std::move(incoming.wsKeys);
+
+  const bool reopen = getSensorListen() == glow::SensorListen::Serial && portChanged;
+  applySerialConfig(cfg, reopen, statusOut);
+  if (getSensorListen() == glow::SensorListen::WebSocket && urlChanged && sensorWs_ != nullptr)
+    sensorWs_->setUrl(juce::String(cfg.wsUrl));
+  refreshSensorDrives();
+  if (reopen && !serialPitch_.isOpen()) {
+    statusOut = juce::String::fromUTF8("Config guardada, pero no se pudo abrir el puerto.");
+    return true;
+  }
+  statusOut = juce::String::fromUTF8("Config guardada.");
+  return true;
+}
+
+bool UmbralAudioProcessor::setSensorListen(glow::SensorListen mode, juce::String& statusOut) {
+  if (mode != glow::SensorListen::Serial) serialPitch_.close();
+  if (mode != glow::SensorListen::WebSocket && sensorWs_ != nullptr) sensorWs_->setUrl({});
+  sensorListen_.store(static_cast<int>(mode));
+
+  if (mode == glow::SensorListen::Off) {
+    refreshSensorDrives();
+    if (engineOn_.load()) pushDroneOn();
+    statusOut = juce::String::fromUTF8("Sensor en pausa.");
+    return true;
+  }
+
+  if (mode == glow::SensorListen::Serial) {
+    auto cfg = getSerialConfig();
+    if (cfg.port.empty()) {
+      sensorListen_.store(static_cast<int>(glow::SensorListen::Off));
+      refreshSensorDrives();
+      statusOut = juce::String::fromUTF8("Eleg\xc3\xad un puerto en config.");
+      return false;
+    }
+    applyConfig(cfg, statusOut, true);
+    if (!serialPitch_.isOpen()) {
+      sensorListen_.store(static_cast<int>(glow::SensorListen::Off));
+      refreshSensorDrives();
+      return false;
+    }
+    return true;
+  }
+
+  auto cfg = getSerialConfig();
+  if (cfg.wsUrl.empty() || sensorWs_ == nullptr) {
+    sensorListen_.store(static_cast<int>(glow::SensorListen::Off));
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("Eleg\xc3\xad un host en config.");
+    return false;
+  }
+  sensorWs_->setUrl(juce::String(cfg.wsUrl));
+  refreshSensorDrives();
+  statusOut = "websocket: conectando";
+  return true;
+}
+
+glow::SensorListen UmbralAudioProcessor::getSensorListen() const {
+  return static_cast<glow::SensorListen>(sensorListen_.load());
+}
+
+bool UmbralAudioProcessor::isWsConnected() const {
+  return sensorWs_ != nullptr && sensorWs_->isConnected();
+}
+
+juce::String UmbralAudioProcessor::getWsStatus() const {
+  return sensorWs_ != nullptr ? sensorWs_->status() : juce::String();
+}
+
+std::vector<std::string> UmbralAudioProcessor::getWsSeenKeys() const {
+  std::lock_guard<std::mutex> lock(wsMutex_);
+  return wsSeenKeys_;
+}
+
+std::vector<std::pair<std::string, float>> UmbralAudioProcessor::getWsLatest() const {
+  std::lock_guard<std::mutex> lock(wsMutex_);
+  return wsLatest_;
+}
+
+juce::String UmbralAudioProcessor::getWsPretty() const {
+  std::lock_guard<std::mutex> lock(wsMutex_);
+  return wsPretty_;
+}
+
+juce::String UmbralAudioProcessor::consumeWsDebugLog() {
+  std::lock_guard<std::mutex> lock(wsMutex_);
+  if (wsDebugLines_.empty()) return {};
+  juce::String out;
+  for (const auto& line : wsDebugLines_) out << line << "\n";
+  wsDebugLines_.clear();
+  return out;
+}
+
+void UmbralAudioProcessor::appendWsDebug(const juce::String& block) {
+  if (!serialDebugConsole_.load() || block.isEmpty()) return;
+  std::lock_guard<std::mutex> lock(wsMutex_);
+  wsDebugLines_.push_back(block);
+  while (wsDebugLines_.size() > 40) wsDebugLines_.pop_front();
+}
+
+void UmbralAudioProcessor::handleWsValues(const std::vector<std::pair<std::string, float>>& values,
+                                          const juce::String& pretty) {
+  {
+    std::lock_guard<std::mutex> lock(wsMutex_);
+    for (const auto& sample : values) {
+      bool known = false;
+      for (auto& slot : wsLatest_) {
+        if (slot.first == sample.first) {
+          slot.second = sample.second;
+          known = true;
+          break;
+        }
+      }
+      if (!known) {
+        wsLatest_.emplace_back(sample);
+        wsSeenKeys_.push_back(sample.first);
+      }
+    }
+    while (wsLatest_.size() > 64) wsLatest_.erase(wsLatest_.begin());
+    while (wsSeenKeys_.size() > 64) wsSeenKeys_.erase(wsSeenKeys_.begin());
+    wsPretty_ = pretty;
+  }
+  appendWsDebug(pretty);
+  if (getSensorListen() != glow::SensorListen::WebSocket) return;
+
+  glow::SerialConfig cfg;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    cfg = serialConfig_;
+  }
+  for (const auto& sample : values) {
+    const glow::WsInput* window = nullptr;
+    for (const auto& key : cfg.wsKeys) {
+      if (key.enabled && key.key == sample.first) window = &key;
+    }
+    if (window == nullptr) continue;
+    for (const auto& route : cfg.destinations) {
+      if (route.source != sample.first) continue;
+      serialPitch_.applyRoute(sample.second, window->low, window->high, route);
+    }
+  }
+}
+
+void UmbralAudioProcessor::setRemoteUrl(const juce::String& url) {
+  remoteUrl_ = url.trim();
+  if (remoteEnabled_ && remote_ != nullptr) remote_->setUrl(remoteUrl_);
 }
 
 bool UmbralAudioProcessor::applyConfig(glow::SerialConfig cfg, juce::String& statusOut,
@@ -733,26 +938,28 @@ bool UmbralAudioProcessor::isSerialDriving(glow::ParameterID id) const {
 }
 
 bool UmbralAudioProcessor::isSerialDrivingId(const juce::String& paramId) const {
-  if (!serialPitch_.isOpen() || paramId.isEmpty()) return false;
+  if (paramId.isEmpty()) return false;
   glow::SerialConfig cfg;
   {
     std::lock_guard<std::mutex> lock(configMutex_);
     cfg = serialConfig_;
   }
   for (const auto& route : cfg.destinations) {
+    if (!routeIsLive(route)) continue;
     if (paramId == glow::serialDestinationName(route.destination)) return true;
   }
   return false;
 }
 
 bool UmbralAudioProcessor::isSerialDrivingPx(const juce::String& paramId) const {
-  if (!serialPitch_.isOpen() || paramId.isEmpty()) return false;
+  if (paramId.isEmpty()) return false;
   glow::SerialConfig cfg;
   {
     std::lock_guard<std::mutex> lock(configMutex_);
     cfg = serialConfig_;
   }
   for (const auto& route : cfg.destinations) {
+    if (!routeIsLive(route)) continue;
     if (!glow::serialDestinationIsPaulXStretch(route.destination)) continue;
     if (paramId == glow::serialDestinationName(route.destination)) return true;
   }
@@ -762,7 +969,11 @@ bool UmbralAudioProcessor::isSerialDrivingPx(const juce::String& paramId) const 
 bool UmbralAudioProcessor::isSerialDrivingPitch() const { return serialDrivesPitch_.load(); }
 
 bool UmbralAudioProcessor::isSerialPitchLive() const {
-  return serialPitch_.isOpen() && serialDrivesPitch_.load() && performance_.serialPitchActive();
+  if (!serialDrivesPitch_.load() || !performance_.serialPitchActive()) return false;
+  const auto listen = getSensorListen();
+  if (listen == glow::SensorListen::Serial) return serialPitch_.isOpen();
+  if (listen == glow::SensorListen::WebSocket) return isWsConnected();
+  return false;
 }
 
 float UmbralAudioProcessor::getDisplayedPitchMidi() const {
@@ -1044,17 +1255,27 @@ void UmbralAudioProcessor::applyRemoteCommand(const juce::var& msg) {
     refreshRemoteDevices();
     return;
   }
+  if (type == "listen") {
+    const auto mode = msg.getProperty("mode", "off").toString();
+    glow::SensorListen listen = glow::SensorListen::Off;
+    if (mode == "serial") listen = glow::SensorListen::Serial;
+    else if (mode == "websocket" || mode == "ws") listen = glow::SensorListen::WebSocket;
+    juce::String status;
+    setSensorListen(listen, status);
+    bumpRemoteUi();
+    return;
+  }
   if (type == "serial") {
     auto cfg = getSerialConfig();
     if (msg.hasProperty("port")) cfg.port = msg.getProperty("port", {}).toString().toStdString();
     if (msg.hasProperty("baud")) cfg.baud = static_cast<int>(msg.getProperty("baud", cfg.baud));
-    const bool connect = static_cast<bool>(msg.getProperty("connect", false));
     juce::String status;
-    if (msg.hasProperty("connect") && !connect) {
-      applyConfig(cfg, status, false);
-      disconnectSerial();
-    } else {
-      applyConfig(cfg, status, connect);
+    saveConnectionSettings(cfg, status);
+    if (msg.hasProperty("connect")) {
+      const bool connect = static_cast<bool>(msg.getProperty("connect", false));
+      if (connect) setSensorListen(glow::SensorListen::Serial, status);
+      else if (getSensorListen() == glow::SensorListen::Serial)
+        setSensorListen(glow::SensorListen::Off, status);
     }
     bumpRemoteUi();
     return;
@@ -1135,11 +1356,30 @@ void UmbralAudioProcessor::applyRemoteConfig(const juce::var& config) {
     return;
 
   auto cfg = getSerialConfig();
+  const bool touchConnection = config.hasProperty("port") || config.hasProperty("baud") ||
+                               config.hasProperty("input") || config.hasProperty("wsUrl") ||
+                               config.hasProperty("wsKeys");
   if (config.hasProperty("input")) {
     cfg.inputLow = parsed.inputLow;
     cfg.inputHigh = parsed.inputHigh;
   }
-  if (config.hasProperty("destinations")) cfg.destinations = std::move(parsed.destinations);
+  if (config.hasProperty("port")) cfg.port = parsed.port;
+  if (config.hasProperty("baud")) cfg.baud = parsed.baud;
+  if (config.hasProperty("wsUrl")) cfg.wsUrl = parsed.wsUrl;
+  if (config.hasProperty("wsKeys")) cfg.wsKeys = parsed.wsKeys;
+  if (config.hasProperty("destinations")) {
+    for (auto& route : parsed.destinations) {
+      if (!route.source.empty()) continue;
+      for (const auto& previous : cfg.destinations) {
+        if (previous.destination != route.destination) continue;
+        if (route.destination == glow::SerialDestination::MidiCc && previous.midiCc != route.midiCc)
+          continue;
+        route.source = previous.source;
+        break;
+      }
+    }
+    cfg.destinations = std::move(parsed.destinations);
+  }
   if (config.hasProperty("drone")) cfg.droneNote = parsed.droneNote;
   if (config.hasProperty("waveform")) cfg.waveform = parsed.waveform;
   if (config.hasProperty("quantize")) cfg.quantize = parsed.quantize;
@@ -1149,7 +1389,9 @@ void UmbralAudioProcessor::applyRemoteConfig(const juce::var& config) {
   }
 
   juce::String status;
-  if (applyConfig(cfg, status, false)) bumpRemoteUi();
+  if (!applyConfig(cfg, status, false)) return;
+  if (touchConnection) saveConnectionSettings(cfg, status);
+  bumpRemoteUi();
 }
 
 juce::String UmbralAudioProcessor::buildRemoteHelloJson() const {
@@ -1272,6 +1514,47 @@ juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
   serial->setProperty("input", input);
   state->setProperty("serial", juce::var(serial));
 
+  const auto listen = getSensorListen();
+  state->setProperty("sensorListen", listen == glow::SensorListen::WebSocket
+                                         ? "websocket"
+                                         : listen == glow::SensorListen::Serial ? "serial" : "off");
+  auto* ws = new juce::DynamicObject();
+  ws->setProperty("url", juce::String(cfg.wsUrl));
+  ws->setProperty("connected", isWsConnected());
+  ws->setProperty("status", getWsStatus());
+  ws->setProperty("pretty", getWsPretty());
+  juce::Array<juce::var> wsKeys;
+  for (const auto& key : cfg.wsKeys) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("key", juce::String(key.key));
+    item->setProperty("low", key.low);
+    item->setProperty("high", key.high);
+    item->setProperty("enabled", key.enabled);
+    wsKeys.add(juce::var(item));
+  }
+  for (const auto& seen : getWsSeenKeys()) {
+    bool listed = false;
+    for (const auto& key : cfg.wsKeys)
+      if (key.key == seen) listed = true;
+    if (listed || seen.empty()) continue;
+    auto* item = new juce::DynamicObject();
+    item->setProperty("key", juce::String(seen));
+    item->setProperty("low", 0.0);
+    item->setProperty("high", 1.0);
+    item->setProperty("enabled", false);
+    wsKeys.add(juce::var(item));
+  }
+  ws->setProperty("keys", wsKeys);
+  juce::Array<juce::var> latest;
+  for (const auto& sample : getWsLatest()) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("key", juce::String(sample.first));
+    item->setProperty("value", sample.second);
+    latest.add(juce::var(item));
+  }
+  ws->setProperty("latest", latest);
+  state->setProperty("ws", juce::var(ws));
+
   auto* config = new juce::DynamicObject();
   config->setProperty("drone", cfg.droneNote);
   config->setProperty("waveform", juce::String(cfg.waveform.value_or("sine")));
@@ -1286,6 +1569,7 @@ juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
     item->setProperty("max", route.max);
     item->setProperty("invert", route.invert);
     if (route.destination == glow::SerialDestination::MidiCc) item->setProperty("cc", route.midiCc);
+    if (!route.source.empty()) item->setProperty("source", juce::String(route.source));
     destinations.add(juce::var(item));
   }
   config->setProperty("destinations", destinations);
@@ -1313,8 +1597,9 @@ juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
   state->setProperty("params", juce::var(params));
 
   juce::Array<juce::var> locked;
-  if (serialPitch_.isOpen()) {
-    for (const auto& route : cfg.destinations) {
+  for (const auto& route : cfg.destinations) {
+    if (!routeIsLive(route)) continue;
+    {
       if (route.destination == glow::SerialDestination::Pitch) {
         locked.add("drone");
         continue;
@@ -1376,6 +1661,11 @@ void UmbralAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
   state.setProperty("audioEngine", rumor::engineKindName(getAudioEngineKind()), nullptr);
   state.setProperty("remoteUrl", remoteUrl_, nullptr);
   state.setProperty("remoteOn", remoteEnabled_, nullptr);
+  state.setProperty("sensorListen",
+                    getSensorListen() == glow::SensorListen::WebSocket
+                        ? "websocket"
+                        : getSensorListen() == glow::SensorListen::Serial ? "serial" : "off",
+                    nullptr);
   float pxDry = 0.0f;
   getPaulXStretchParameter("px.dry", pxDry);
   state.setProperty("pxDry", pxDry >= 0.5f, nullptr);
@@ -1448,6 +1738,17 @@ void UmbralAudioProcessor::setStateInformation(const void* data, int sizeInBytes
   if (tree.hasProperty("remoteUrl")) remoteUrl_ = tree.getProperty("remoteUrl").toString();
   if (remoteUrl_.isEmpty()) remoteUrl_ = kDefaultRemoteUrl;
   if (static_cast<bool>(tree.getProperty("remoteOn", false))) connectRemote(remoteUrl_);
+
+  if (engineOn_.load() && tree.hasProperty("sensorListen")) {
+    const auto mode = tree.getProperty("sensorListen").toString();
+    glow::SensorListen listen = glow::SensorListen::Off;
+    if (mode == "serial") listen = glow::SensorListen::Serial;
+    else if (mode == "websocket") listen = glow::SensorListen::WebSocket;
+    if (listen != glow::SensorListen::Off) {
+      juce::String status;
+      setSensorListen(listen, status);
+    }
+  }
 }
 
 juce::AudioProcessorEditor* UmbralAudioProcessor::createEditor() {

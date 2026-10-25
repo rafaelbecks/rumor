@@ -132,6 +132,8 @@ if(RUMOR_BUILD_PLUGIN)
       app/Source/PluginEditor.cpp
       app/Source/RemoteLink.cpp
       app/Source/RemoteTls.cpp
+      app/Source/SensorWs.cpp
+      app/Source/SensorConfig.cpp
       app/Source/PaulXStretchPanel.cpp
       app/Source/Presets.cpp
   )

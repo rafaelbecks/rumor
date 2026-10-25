@@ -47,8 +47,15 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
     void buttonClicked(juce::Button*) override;
     void comboBoxChanged(juce::ComboBox*) override;
     void applyDefaultRangeForSelection();
+    void setSources(bool showSerial, const std::vector<std::string>& keys, const std::string& selected,
+                    const std::vector<std::pair<std::string, float>>& latest, float serialValue,
+                    bool haveSerial);
+    std::string selectedSource() const;
 
     std::function<void(DestinationRow*)> onRemove;
+    juce::ComboBox sourceBox;
+    std::vector<std::string> sourceIds_;
+    std::string heldSource_;
     juce::ComboBox parameterBox;
     juce::Label ccLabel;
     juce::Slider ccSlider;
@@ -70,10 +77,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   void sliderValueChanged(juce::Slider* slider) override;
   void comboBoxChanged(juce::ComboBox* box) override;
   void textEditorTextChanged(juce::TextEditor&) override;
-  void textEditorReturnKeyPressed(juce::TextEditor&) override;
 
-  void refreshSerialPorts();
-  void refreshMidiOutputs();
   void refreshPresetList();
   void refreshEngineUi();
   void loadSelectedPreset();
@@ -86,7 +90,12 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   glow::SerialConfig buildConfigFromUi() const;
   void addDestinationRow(const glow::SerialRoute& route);
   void layoutDestinationRows();
-  bool applyFromUi(bool connectSerial);
+  bool applyFromUi();
+  void openSensorConfig();
+  void refreshRouteSources();
+  std::vector<std::string> enabledSourceKeys() const;
+  void appendWsChunk(const juce::String& chunk);
+  void showDebugTab(bool websocket);
   void makeParamSliders(const glow::ParameterID* ids, size_t count,
                         std::vector<std::unique_ptr<ParamSlider>>& out);
   void appendDebugChunk(const juce::String& chunk);
@@ -131,6 +140,10 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
     float fillAlpha_{0.55f};
   };
 
+  struct SensorSpine : public juce::Component {
+    void paint(juce::Graphics& g) override;
+  };
+
   ModuleFrame leftModule_{0.38f};   // outer shell (lighter)
   ModuleFrame rightModule_{0.28f};  // outer shell (more open); inner panels use full glass
   juce::TabbedComponent leftTabs_{juce::TabbedButtonBar::TabsAtBottom};
@@ -142,27 +155,18 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   GlassPanel outPanel_;
   std::unique_ptr<PaulXStretchPanel> pxPanel_;
 
+  juce::ToggleButton serialListen_;
+  juce::ToggleButton wsListen_;
+  juce::TextButton configButton_;
+  SensorSpine sensorSpine_;
   juce::TextButton applyButton_;
-  juce::TextButton connectButton_;
-  juce::TextButton disconnectButton_;
-  juce::TextButton refreshPortsButton_;
   juce::TextButton addDestButton_;
   juce::ToggleButton debugToggle_;
-  juce::Label remoteLabel_;
-  juce::TextEditor remoteUrlEdit_;
-  juce::TextButton remoteButton_;
+  juce::TextButton serialDebugTab_;
+  juce::TextButton wsDebugTab_;
   uint32_t lastRemoteUiRevision_{0};
   uint32_t lastRemotePxRevision_{0};
 
-  juce::Label portLabel_;
-  juce::ComboBox portBox_;
-  juce::Label baudLabel_;
-  juce::ComboBox baudBox_;
-  juce::Label midiOutLabel_;
-  juce::ComboBox midiOutBox_;
-  juce::Label inputLabel_;
-  juce::TextEditor inputLowEdit_;   // serial ADC window lo (typed)
-  juce::TextEditor inputHighEdit_;  // serial ADC window hi (typed)
   juce::Label destSectionLabel_;
   juce::Component destList_;
   std::vector<std::unique_ptr<DestinationRow>> destRows_;
@@ -170,6 +174,8 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   juce::TextEditor debugFilter_;
   juce::TextEditor debugConsole_;
   juce::StringArray debugHistory_;
+  juce::StringArray wsHistory_;
+  bool debugShowsWs_{false};
 
   juce::Label droneLabel_;
   juce::Slider droneSlider_;
@@ -223,12 +229,9 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> swapAttach_;
   std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoAttach_;
 
-  juce::StringArray portPaths_;
-  juce::StringArray midiOutIds_;
   juce::String currentPresetName_;
   bool syncingUi_{false};
   bool ignorePresetChange_{false};
-  bool ignoreMidiOutChange_{false};
   bool ignoreEngineChange_{false};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UmbralAudioProcessorEditor)

@@ -11,6 +11,7 @@
 #include "parameters/ParameterRegistry.h"
 #include "util/LockFreeQueue.h"
 #include "RemoteLink.h"
+#include "SensorWs.h"
 
 #if RUMOR_HAS_PAULXSTRETCH
 #include "engines/paulxstretch/PaulXStretchEngine.h"
@@ -19,8 +20,10 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 class UmbralAudioProcessor : public juce::AudioProcessor {
@@ -62,6 +65,18 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   bool isSerialConnected() const;
   juce::String getSerialStatus() const;
   std::vector<juce::String> listSerialPorts() const;
+
+  /** Port, baud, serial window, websocket host, and per-key windows. Does not change listen mode. */
+  bool saveConnectionSettings(glow::SerialConfig incoming, juce::String& statusOut);
+  bool setSensorListen(glow::SensorListen mode, juce::String& statusOut);
+  glow::SensorListen getSensorListen() const;
+  bool isWsConnected() const;
+  juce::String getWsStatus() const;
+  std::vector<std::string> getWsSeenKeys() const;
+  std::vector<std::pair<std::string, float>> getWsLatest() const;
+  juce::String getWsPretty() const;
+  juce::String consumeWsDebugLog();
+  void setRemoteUrl(const juce::String& url);
 
   struct MidiOutDevice {
     juce::String identifier;
@@ -159,7 +174,11 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   void pushDroneOff();
   void syncSynthPitches();
   void applySerialConfig(const glow::SerialConfig& cfg, bool connectSerial, juce::String& statusOut);
+  void refreshSensorDrives();
+  void handleWsValues(const std::vector<std::pair<std::string, float>>& values, const juce::String& pretty);
+  bool routeIsLive(const glow::SerialRoute& route) const;
   void appendDebugLine(const juce::String& line);
+  void appendWsDebug(const juce::String& block);
   juce::String serialConfigToJson(const glow::SerialConfig& cfg) const;
   void applyRemoteCommand(const juce::var& msg);
   void applyRemoteParam(const juce::String& id, float value);
@@ -231,6 +250,18 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   std::vector<float> pxScratchR_;
   int maxBlockSize_{512};
   int maxGrains_{32};
+
+  struct Lifetime {
+    std::atomic<bool> alive{true};
+  };
+  std::shared_ptr<Lifetime> life_ = std::make_shared<Lifetime>();
+  mutable std::mutex wsMutex_;
+  std::deque<juce::String> wsDebugLines_;
+  std::vector<std::string> wsSeenKeys_;
+  std::vector<std::pair<std::string, float>> wsLatest_;
+  juce::String wsPretty_;
+  std::atomic<int> sensorListen_{static_cast<int>(glow::SensorListen::Off)};
+  std::unique_ptr<SensorWs> sensorWs_;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UmbralAudioProcessor)
 };

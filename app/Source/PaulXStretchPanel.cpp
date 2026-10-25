@@ -417,10 +417,9 @@ void PaulXStretchPanel::refreshFromEngine() {
 }
 
 void PaulXStretchPanel::syncSerialDrivenSliders() {
-  const bool serialOpen = processor_.isSerialConnected();
   syncing_ = true;
   for (auto& row : sliders_) {
-    const bool locked = serialOpen && processor_.isSerialDrivingPx(row->paramId);
+    const bool locked = processor_.isSerialDrivingPx(row->paramId);
     row->slider.setEnabled(!locked);
     row->slider.setAlpha(locked ? 0.55f : 1.0f);
     if (!locked) continue;

@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "Presets.h"
+#include "SensorConfig.h"
 #include "BinaryData.h"
 #include "audio/Oscillator.h"
 #include "util/Scale.h"
@@ -42,6 +43,16 @@ constexpr const char* kDestNames[] = {
 constexpr int kDestNameCount = static_cast<int>(sizeof(kDestNames) / sizeof(kDestNames[0]));
 
 juce::String U8(const char* utf8) { return juce::String::fromUTF8(utf8); }
+
+juce::String formatReading(float value) {
+  if (std::abs(value - std::round(value)) < 0.05f) return juce::String(juce::roundToInt(value));
+  return juce::String(value, 2);
+}
+
+juce::String originLabel(const juce::String& name, bool haveValue, float value) {
+  if (!haveValue) return name;
+  return name + "  " + formatReading(value);
+}
 
 // GRM Atelier–inspired palette: flat charcoal, soft blue accent, lowercase calm.
 const juce::Colour kBg{0xff141416};
@@ -332,6 +343,12 @@ UmbralAudioProcessorEditor::DestinationRow::DestinationRow()
   parameterBox.setColour(juce::ComboBox::textColourId, kText);
   parameterBox.setColour(juce::ComboBox::arrowColourId, kMuted);
   addAndMakeVisible(parameterBox);
+  sourceBox.setTextWhenNothingSelected("origen");
+  sourceBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0x14ffffff));
+  sourceBox.setColour(juce::ComboBox::outlineColourId, kGlassStroke);
+  sourceBox.setColour(juce::ComboBox::textColourId, kText);
+  sourceBox.setColour(juce::ComboBox::arrowColourId, kMuted);
+  addAndMakeVisible(sourceBox);
   ccLabel.setColour(juce::Label::textColourId, kMuted);
   addAndMakeVisible(ccLabel);
   setupCompactSlider(ccSlider, 0, 127, 1);
@@ -363,18 +380,20 @@ void UmbralAudioProcessorEditor::DestinationRow::applyDefaultRangeForSelection()
 
 void UmbralAudioProcessorEditor::DestinationRow::resized() {
   auto r = getLocalBounds();
-  parameterBox.setBounds(r.removeFromLeft(148));
+  sourceBox.setBounds(r.removeFromLeft(ccSlider.isVisible() ? 108 : 156));
+  r.removeFromLeft(4);
+  parameterBox.setBounds(r.removeFromLeft(ccSlider.isVisible() ? 96 : 108));
   r.removeFromLeft(4);
   if (ccSlider.isVisible()) {
     ccLabel.setBounds(r.removeFromLeft(22));
     ccSlider.setBounds(r.removeFromLeft(56));
     r.removeFromLeft(4);
   }
-  minEdit.setBounds(r.removeFromLeft(72));
+  minEdit.setBounds(r.removeFromLeft(58));
   r.removeFromLeft(4);
-  maxEdit.setBounds(r.removeFromLeft(72));
+  maxEdit.setBounds(r.removeFromLeft(58));
   r.removeFromLeft(4);
-  invertToggle.setBounds(r.removeFromLeft(44));
+  invertToggle.setBounds(r.removeFromLeft(40));
   r.removeFromLeft(4);
   removeButton.setBounds(r.removeFromLeft(28));
 }
@@ -383,8 +402,67 @@ void UmbralAudioProcessorEditor::DestinationRow::buttonClicked(juce::Button* b) 
   if (b == &removeButton && onRemove) onRemove(this);
 }
 
-void UmbralAudioProcessorEditor::DestinationRow::comboBoxChanged(juce::ComboBox*) {
-  applyDefaultRangeForSelection();
+void UmbralAudioProcessorEditor::DestinationRow::comboBoxChanged(juce::ComboBox* box) {
+  if (box == &parameterBox) applyDefaultRangeForSelection();
+  if (box == &sourceBox) {
+    const int id = sourceBox.getSelectedId();
+    if (id > 0 && id <= static_cast<int>(sourceIds_.size())) heldSource_ = sourceIds_[static_cast<size_t>(id - 1)];
+  }
+}
+
+void UmbralAudioProcessorEditor::DestinationRow::setSources(
+    bool showSerial, const std::vector<std::string>& keys, const std::string& selected,
+    const std::vector<std::pair<std::string, float>>& latest, float serialValue, bool haveSerial) {
+  heldSource_ = selected;
+  std::vector<std::string> nextIds;
+  if (showSerial) nextIds.emplace_back();
+  for (const auto& key : keys)
+    if (!key.empty() && key != "serial") nextIds.push_back(key);
+
+  auto labelFor = [&](const std::string& id) {
+    if (id.empty()) return originLabel("serial", haveSerial, serialValue);
+    bool have = false;
+    float value = 0.0f;
+    for (const auto& sample : latest)
+      if (sample.first == id) {
+        have = true;
+        value = sample.second;
+      }
+    return originLabel(juce::String(id), have, value);
+  };
+
+  if (nextIds == sourceIds_ && sourceBox.getNumItems() == static_cast<int>(nextIds.size())) {
+    for (int i = 0; i < static_cast<int>(nextIds.size()); ++i) {
+      const auto text = labelFor(nextIds[static_cast<size_t>(i)]);
+      if (sourceBox.getItemText(i) != text) sourceBox.changeItemText(i + 1, text);
+    }
+    return;
+  }
+
+  sourceIds_ = std::move(nextIds);
+  sourceBox.clear(juce::dontSendNotification);
+  int selectedId = 0;
+  for (int i = 0; i < static_cast<int>(sourceIds_.size()); ++i) {
+    sourceBox.addItem(labelFor(sourceIds_[static_cast<size_t>(i)]), i + 1);
+    const bool isSerial = sourceIds_[static_cast<size_t>(i)].empty();
+    if ((isSerial && selected.empty()) || sourceIds_[static_cast<size_t>(i)] == selected) selectedId = i + 1;
+  }
+  sourceBox.setSelectedId(selectedId, juce::dontSendNotification);
+}
+
+std::string UmbralAudioProcessorEditor::DestinationRow::selectedSource() const {
+  const int id = sourceBox.getSelectedId();
+  if (id > 0 && id <= static_cast<int>(sourceIds_.size())) return sourceIds_[static_cast<size_t>(id - 1)];
+  return heldSource_;
+}
+
+void UmbralAudioProcessorEditor::SensorSpine::paint(juce::Graphics& g) {
+  auto b = getLocalBounds().toFloat();
+  const float x = 14.0f;
+  g.setColour(kAccent.withAlpha(0.9f));
+  g.fillEllipse(x - 3.0f, 1.0f, 6.0f, 6.0f);
+  g.drawLine(x, 6.0f, x, juce::jmax(6.0f, b.getHeight() - 6.0f), 1.4f);
+  g.fillEllipse(x - 3.0f, juce::jmax(1.0f, b.getHeight() - 7.0f), 6.0f, 6.0f);
 }
 
 void UmbralAudioProcessorEditor::makeParamSliders(
@@ -433,18 +511,14 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
       synthPanel_({}),
       modPanel_({}),
       outPanel_({}),
+      serialListen_("serial"),
+      wsListen_("websocket"),
+      configButton_("config"),
       applyButton_("aplicar"),
-      connectButton_("conectar"),
-      disconnectButton_("desconectar"),
-      refreshPortsButton_("actualizar"),
       addDestButton_("agregar"),
       debugToggle_("debug"),
-      remoteLabel_({}, "remoto"),
-      remoteButton_("vincular"),
-      portLabel_({}, "puerto"),
-      baudLabel_({}, "baud"),
-      midiOutLabel_({}, "midi out"),
-      inputLabel_({}, "entrada"),
+      serialDebugTab_("serial"),
+      wsDebugTab_("websocket"),
       destSectionLabel_({}, "destinos"),
       filterLabel_({}, "filtro"),
       droneLabel_({}, "drone"),
@@ -562,7 +636,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   sintePage_.onResized = [this] { layoutSintePage(); };
   sintePage_.addAndMakeVisible(synthPanel_);
   sintePage_.addAndMakeVisible(modPanel_);
-  leftTabs_.addTab("serial", juce::Colours::transparentBlack, &serialPanel_, false);
+  leftTabs_.addTab("sensor", juce::Colours::transparentBlack, &serialPanel_, false);
   leftTabs_.addTab("sinte", juce::Colours::transparentBlack, &sintePage_, false);
   leftModule_.addAndMakeVisible(leftTabs_);
   addAndMakeVisible(leftModule_);
@@ -575,8 +649,12 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   rightModule_.addAndMakeVisible(rightTabs_);
   addAndMakeVisible(rightModule_);
 
-  for (auto* b : {&applyButton_, &connectButton_, &disconnectButton_, &refreshPortsButton_,
-                  &addDestButton_, &remoteButton_}) {
+  serialListen_.setClickingTogglesState(true);
+  wsListen_.setClickingTogglesState(true);
+  for (auto* b : {static_cast<juce::Button*>(&serialListen_), static_cast<juce::Button*>(&wsListen_),
+                  static_cast<juce::Button*>(&configButton_), static_cast<juce::Button*>(&applyButton_),
+                  static_cast<juce::Button*>(&addDestButton_), static_cast<juce::Button*>(&serialDebugTab_),
+                  static_cast<juce::Button*>(&wsDebugTab_)}) {
     b->addListener(this);
     serialPanel_.addAndMakeVisible(b);
   }
@@ -584,36 +662,15 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   debugToggle_.setToggleState(processor_.isSerialDebugConsole(), juce::dontSendNotification);
   debugToggle_.addListener(this);
   serialPanel_.addAndMakeVisible(debugToggle_);
+  serialPanel_.addAndMakeVisible(sensorSpine_);
 
-  for (auto* l : {&portLabel_, &baudLabel_, &midiOutLabel_, &inputLabel_, &destSectionLabel_,
-                  &filterLabel_, &remoteLabel_}) {
+  for (auto* l : {&destSectionLabel_, &filterLabel_}) {
     styleLabel(*l, brandFont_);
     serialPanel_.addAndMakeVisible(l);
   }
-  remoteUrlEdit_.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x14ffffff));
-  remoteUrlEdit_.setColour(juce::TextEditor::textColourId, kText);
-  remoteUrlEdit_.setColour(juce::TextEditor::outlineColourId, kGlassStroke);
-  remoteUrlEdit_.setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.55f));
-  remoteUrlEdit_.setFont(brandFont_);
-  remoteUrlEdit_.setJustification(juce::Justification::centredLeft);
-  remoteUrlEdit_.setTextToShowWhenEmpty(kDefaultRemoteUrl, kMuted);
-  remoteUrlEdit_.setText(processor_.getRemoteUrl(), false);
-  remoteUrlEdit_.addListener(this);
-  remoteButton_.setButtonText(processor_.isRemoteEnabled() ? "cortar" : "vincular");
-  serialPanel_.addAndMakeVisible(remoteUrlEdit_);
-  serialPanel_.addAndMakeVisible(portBox_);
-  serialPanel_.addAndMakeVisible(baudBox_);
-  serialPanel_.addAndMakeVisible(midiOutBox_);
-  serialPanel_.addAndMakeVisible(inputLowEdit_);
-  serialPanel_.addAndMakeVisible(inputHighEdit_);
   serialPanel_.addAndMakeVisible(destList_);
-  baudBox_.addItemList({"9600", "19200", "38400", "57600", "115200"}, 1);
-  baudBox_.setSelectedId(1, juce::dontSendNotification);
-  midiOutBox_.addListener(this);
-  setupCompactEdit(inputLowEdit_, "lo");
-  setupCompactEdit(inputHighEdit_, "hi");
-  inputLowEdit_.setText("4", false);
-  inputHighEdit_.setText("16", false);
+  serialDebugTab_.setClickingTogglesState(false);
+  wsDebugTab_.setClickingTogglesState(false);
 
   debugFilter_.setTextToShowWhenEmpty(U8("ej. chord.spread, px.freq_shift"), kMuted);
   debugFilter_.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x44000000));
@@ -740,8 +797,6 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   styleCuteControls();
   applyBrandFont(*this);
   loadConfigIntoUi(processor_.getSerialConfig());
-  refreshSerialPorts();
-  refreshMidiOutputs();
   refreshEngineUi();
   if (pxPanel_ != nullptr) {
     pxPanel_->setBrandFont(brandFont_);
@@ -755,7 +810,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   updateParamLockUi();
   updateWaveGraph();
   shownPitchCount_ = processor_.getPitchCount();
-  resized();
+  showDebugTab(false);
   startTimerHz(15);
 }
 
@@ -764,7 +819,6 @@ UmbralAudioProcessorEditor::~UmbralAudioProcessorEditor() {
   if (pxPanel_ != nullptr) pxPanel_->setLookAndFeel(nullptr);
   setLookAndFeel(nullptr);
   presetBox_.removeListener(this);
-  midiOutBox_.removeListener(this);
   waveBox_.removeListener(this);
   quantBox_.removeListener(this);
   granularToggle_.removeListener(this);
@@ -773,12 +827,12 @@ UmbralAudioProcessorEditor::~UmbralAudioProcessorEditor() {
   savePresetButton_.removeListener(this);
   engineButton_.removeListener(this);
   for (auto* b : {&soloLButton_, &soloRButton_, &bothOutButton_}) b->removeListener(this);
-  for (auto* b : {&applyButton_, &connectButton_, &disconnectButton_, &refreshPortsButton_,
-                  &addDestButton_})
+  for (auto* b : {static_cast<juce::Button*>(&serialListen_), static_cast<juce::Button*>(&wsListen_),
+                  static_cast<juce::Button*>(&configButton_), static_cast<juce::Button*>(&applyButton_),
+                  static_cast<juce::Button*>(&addDestButton_), static_cast<juce::Button*>(&serialDebugTab_),
+                  static_cast<juce::Button*>(&wsDebugTab_)})
     b->removeListener(this);
   debugToggle_.removeListener(this);
-  remoteButton_.removeListener(this);
-  remoteUrlEdit_.removeListener(this);
   droneSlider_.removeListener(this);
   addPitchButton_.removeListener(this);
   for (int i = 0; i < 2; ++i) {
@@ -809,17 +863,18 @@ void UmbralAudioProcessorEditor::styleCuteControls() {
   for (auto* b : {static_cast<juce::Button*>(&savePresetButton_),
                   static_cast<juce::Button*>(&engineButton_),
                   static_cast<juce::Button*>(&applyButton_),
-                  static_cast<juce::Button*>(&connectButton_),
-                  static_cast<juce::Button*>(&disconnectButton_),
-                  static_cast<juce::Button*>(&refreshPortsButton_),
                   static_cast<juce::Button*>(&addDestButton_),
+                  static_cast<juce::Button*>(&configButton_),
+                  static_cast<juce::Button*>(&serialDebugTab_),
+                  static_cast<juce::Button*>(&wsDebugTab_),
                   static_cast<juce::Button*>(&soloLButton_),
                   static_cast<juce::Button*>(&soloRButton_),
                   static_cast<juce::Button*>(&bothOutButton_),
                   static_cast<juce::Button*>(&granularToggle_),
                   static_cast<juce::Button*>(&pxToggle_),
                   static_cast<juce::Button*>(&debugToggle_),
-                  static_cast<juce::Button*>(&remoteButton_),
+                  static_cast<juce::Button*>(&serialListen_),
+                  static_cast<juce::Button*>(&wsListen_),
                   static_cast<juce::Button*>(&addPitchButton_),
                   static_cast<juce::Button*>(&extraPitchRemove_[0]),
                   static_cast<juce::Button*>(&extraPitchRemove_[1]),
@@ -833,8 +888,7 @@ void UmbralAudioProcessorEditor::styleCuteControls() {
     c.setColour(juce::ComboBox::textColourId, kText);
     c.setColour(juce::ComboBox::arrowColourId, kMuted);
   };
-  for (auto* c : {&presetBox_, &portBox_, &baudBox_, &midiOutBox_, &waveBox_, &quantBox_})
-    tintBox(*c);
+  for (auto* c : {&presetBox_, &waveBox_, &quantBox_}) tintBox(*c);
 }
 
 void UmbralAudioProcessorEditor::parentHierarchyChanged() {
@@ -914,62 +968,60 @@ void UmbralAudioProcessorEditor::resized() {
   rightTabs_.setBounds(rightModule_.contentBounds());
   layoutSintePage();
 
-  // Serial internals
+  // Sensor internals: listen row, a spine down into the destination mapping.
   {
     auto serial = serialPanel_.contentBounds();
-    auto sRemote = serial.removeFromTop(kRowH);
-    remoteLabel_.setBounds(sRemote.removeFromLeft(52));
-    remoteButton_.setBounds(sRemote.removeFromRight(72));
-    sRemote.removeFromRight(4);
-    remoteUrlEdit_.setBounds(sRemote);
-    serial.removeFromTop(4);
-    auto s1 = serial.removeFromTop(kRowH);
-    portLabel_.setBounds(s1.removeFromLeft(48));
-    portBox_.setBounds(s1.removeFromLeft(s1.getWidth() - 170));
-    s1.removeFromLeft(4);
-    refreshPortsButton_.setBounds(s1.removeFromLeft(80));
-    s1.removeFromLeft(4);
-    baudLabel_.setBounds(s1.removeFromLeft(36));
-    baudBox_.setBounds(s1);
-    serial.removeFromTop(4);
-    auto sMidi = serial.removeFromTop(kRowH);
-    midiOutLabel_.setBounds(sMidi.removeFromLeft(64));
-    midiOutBox_.setBounds(sMidi);
-    serial.removeFromTop(4);
-    auto s2 = serial.removeFromTop(kRowH);
-    inputLabel_.setBounds(s2.removeFromLeft(52));
-    inputLowEdit_.setBounds(s2.removeFromLeft(64));
-    s2.removeFromLeft(4);
-    inputHighEdit_.setBounds(s2.removeFromLeft(64));
-    s2.removeFromLeft(8);
-    debugToggle_.setBounds(s2.removeFromLeft(70));
-    serial.removeFromTop(4);
+    auto listen = serial.removeFromTop(kRowH);
+    serialListen_.setBounds(listen.removeFromLeft(78));
+    listen.removeFromLeft(6);
+    wsListen_.setBounds(listen.removeFromLeft(108));
+    listen.removeFromLeft(8);
+    configButton_.setBounds(listen.removeFromLeft(72));
+    debugToggle_.setBounds(listen.removeFromRight(70));
+    serial.removeFromTop(2);
+
+    const int debugH = debugConsole_.isVisible() ? 168 : 0;
+    juce::Rectangle<int> dbg;
+    if (debugH > 0) dbg = serial.removeFromBottom(debugH);
+    serial.removeFromBottom(debugH > 0 ? 4 : 0);
+
+    sensorSpine_.setBounds(serial.removeFromLeft(22));
     auto s3 = serial.removeFromTop(kRowH);
-    destSectionLabel_.setBounds(s3.removeFromLeft(64));
-    addDestButton_.setBounds(s3.removeFromLeft(70));
+    destSectionLabel_.setBounds(s3.removeFromLeft(72));
+    addDestButton_.setBounds(s3.removeFromLeft(78));
     s3.removeFromLeft(6);
-    applyButton_.setBounds(s3.removeFromLeft(70));
-    s3.removeFromLeft(4);
-    connectButton_.setBounds(s3.removeFromLeft(80));
-    s3.removeFromLeft(4);
-    disconnectButton_.setBounds(s3.removeFromLeft(96));
+    applyButton_.setBounds(s3.removeFromLeft(72));
     serial.removeFromTop(4);
-    const int debugH = debugConsole_.isVisible() ? 150 : 0;
+    destList_.setBounds(serial);
+    layoutDestinationRows();
+
     if (debugH > 0) {
-      auto dbg = serial.removeFromBottom(debugH);
-      auto filt = dbg.removeFromTop(24);
-      filterLabel_.setBounds(filt.removeFromLeft(48));
-      debugFilter_.setBounds(filt);
+      auto tabs = dbg.removeFromTop(24);
+      serialDebugTab_.setBounds(tabs.removeFromLeft(72));
+      tabs.removeFromLeft(4);
+      wsDebugTab_.setBounds(tabs.removeFromLeft(96));
       dbg.removeFromTop(4);
+      if (!debugShowsWs_) {
+        auto filt = dbg.removeFromTop(24);
+        filterLabel_.setBounds(filt.removeFromLeft(48));
+        debugFilter_.setBounds(filt);
+        dbg.removeFromTop(4);
+      } else {
+        filterLabel_.setBounds({});
+        debugFilter_.setBounds({});
+      }
       debugConsole_.setBounds(dbg);
-      serial.removeFromBottom(4);
     } else {
+      serialDebugTab_.setBounds({});
+      wsDebugTab_.setBounds({});
       filterLabel_.setBounds({});
       debugFilter_.setBounds({});
       debugConsole_.setBounds({});
     }
-    destList_.setBounds(serial);
-    layoutDestinationRows();
+    serialDebugTab_.setVisible(debugConsole_.isVisible());
+    wsDebugTab_.setVisible(debugConsole_.isVisible());
+    filterLabel_.setVisible(debugConsole_.isVisible() && !debugShowsWs_);
+    debugFilter_.setVisible(debugConsole_.isVisible() && !debugShowsWs_);
   }
 
   // Synth
@@ -1120,6 +1172,9 @@ void UmbralAudioProcessorEditor::addDestinationRow(const glow::SerialRoute& rout
   row->minEdit.setText(juce::String(route.min, 4), false);
   row->maxEdit.setText(juce::String(route.max, 4), false);
   row->invertToggle.setToggleState(route.invert, juce::dontSendNotification);
+  row->setSources(processor_.getSensorListen() == glow::SensorListen::Serial, enabledSourceKeys(),
+                  route.source, processor_.getWsLatest(), processor_.lastSerialSmoothed(),
+                  processor_.lastSerialRaw() >= 0);
   row->onRemove = [this](DestinationRow* victim) {
     destList_.removeChildComponent(victim);
     destRows_.erase(std::remove_if(destRows_.begin(), destRows_.end(),
@@ -1134,13 +1189,9 @@ void UmbralAudioProcessorEditor::addDestinationRow(const glow::SerialRoute& rout
 
 void UmbralAudioProcessorEditor::loadConfigIntoUi(const glow::SerialConfig& cfg) {
   syncingUi_ = true;
-  const int baudIds[] = {9600, 19200, 38400, 57600, 115200};
-  baudBox_.setSelectedItemIndex(0, juce::dontSendNotification);
-  for (int i = 0; i < 5; ++i)
-    if (baudIds[i] == cfg.baud) {
-      baudBox_.setSelectedItemIndex(i, juce::dontSendNotification);
-      break;
-    }
+  const auto listen = processor_.getSensorListen();
+  serialListen_.setToggleState(listen == glow::SensorListen::Serial, juce::dontSendNotification);
+  wsListen_.setToggleState(listen == glow::SensorListen::WebSocket, juce::dontSendNotification);
   if (cfg.droneNote >= 0) droneSlider_.setValue(cfg.droneNote, juce::dontSendNotification);
   waveBox_.setSelectedItemIndex(0, juce::dontSendNotification);
   if (cfg.waveform)
@@ -1156,8 +1207,6 @@ void UmbralAudioProcessorEditor::loadConfigIntoUi(const glow::SerialConfig& cfg)
         quantBox_.setSelectedItemIndex(i, juce::dontSendNotification);
         break;
       }
-  inputLowEdit_.setText(juce::String(cfg.inputLow), false);
-  inputHighEdit_.setText(juce::String(cfg.inputHigh), false);
   destRows_.clear();
   destList_.removeAllChildren();
   for (const auto& route : cfg.destinations) addDestinationRow(route);
@@ -1166,19 +1215,13 @@ void UmbralAudioProcessorEditor::loadConfigIntoUi(const glow::SerialConfig& cfg)
 }
 
 glow::SerialConfig UmbralAudioProcessorEditor::buildConfigFromUi() const {
-  glow::SerialConfig cfg;
-  const int portIndex = portBox_.getSelectedItemIndex();
-  if (portIndex > 0 && portIndex < portPaths_.size())
-    cfg.port = portPaths_[portIndex].toStdString();
-  const int baudIds[] = {9600, 19200, 38400, 57600, 115200};
-  cfg.baud = baudIds[juce::jlimit(0, 4, baudBox_.getSelectedItemIndex())];
+  auto cfg = processor_.getSerialConfig();
   cfg.droneNote = static_cast<int>(droneSlider_.getValue());
   cfg.waveform = waveBox_.getText().toStdString();
   cfg.quantize = quantBox_.getText().toStdString();
   if (*cfg.quantize == "off") cfg.quantize.reset();
-  cfg.inputLow = inputLowEdit_.getText().trim().getIntValue();
-  cfg.inputHigh = inputHighEdit_.getText().trim().getIntValue();
   cfg.debug = debugToggle_.getToggleState();
+  cfg.destinations.clear();
   for (const auto& row : destRows_) {
     glow::SerialDestination dest = glow::SerialDestination::Pitch;
     glow::serialDestinationFromName(row->parameterBox.getText().toStdString(), dest);
@@ -1188,53 +1231,27 @@ glow::SerialConfig UmbralAudioProcessorEditor::buildConfigFromUi() const {
     route.max = row->maxEdit.getText().trim().getFloatValue();
     route.invert = row->invertToggle.getToggleState();
     route.midiCc = juce::jlimit(0, 127, juce::roundToInt(row->ccSlider.getValue()));
+    route.source = row->selectedSource();
     cfg.destinations.push_back(route);
   }
   return cfg;
 }
 
-void UmbralAudioProcessorEditor::refreshSerialPorts() {
-  const auto selected = portBox_.getText();
-  const auto cfgPort = juce::String(processor_.getSerialConfig().port);
-  portBox_.clear(juce::dontSendNotification);
-  portPaths_.clear();
-  portBox_.addItem(U8("(ninguno)"), 1);
-  portPaths_.add({});
-  int id = 2;
-  for (const auto& path : processor_.listSerialPorts()) {
-    portBox_.addItem(path, id++);
-    portPaths_.add(path);
-  }
-  int match = 0;
-  for (int i = 0; i < portPaths_.size(); ++i)
-    if (portPaths_[i] == selected || portPaths_[i] == cfgPort) {
-      match = i;
-      if (portPaths_[i] == selected) break;
-    }
-  portBox_.setSelectedItemIndex(match, juce::dontSendNotification);
+std::vector<std::string> UmbralAudioProcessorEditor::enabledSourceKeys() const {
+  std::vector<std::string> keys;
+  if (processor_.getSensorListen() != glow::SensorListen::WebSocket) return keys;
+  for (const auto& key : processor_.getSerialConfig().wsKeys)
+    if (key.enabled && !key.key.empty()) keys.push_back(key.key);
+  return keys;
 }
 
-void UmbralAudioProcessorEditor::refreshMidiOutputs() {
-  ignoreMidiOutChange_ = true;
-  const auto currentId = processor_.getMidiOutputIdentifier();
-  midiOutBox_.clear(juce::dontSendNotification);
-  midiOutIds_.clear();
-  midiOutBox_.addItem(U8("(solo host)"), 1);
-  midiOutIds_.add({});
-  int id = 2, match = 0;
-  for (const auto& d : processor_.listMidiOutputDevices()) {
-    midiOutBox_.addItem(d.name, id++);
-    midiOutIds_.add(d.identifier);
-    if (d.identifier == currentId) match = midiOutIds_.size() - 1;
-  }
-  if (currentId.isNotEmpty() && match == 0) {
-    const auto name = processor_.getMidiOutputName();
-    midiOutBox_.addItem(name.isNotEmpty() ? name + " (offline)" : "(offline)", id);
-    midiOutIds_.add(currentId);
-    match = midiOutIds_.size() - 1;
-  }
-  midiOutBox_.setSelectedItemIndex(match, juce::dontSendNotification);
-  ignoreMidiOutChange_ = false;
+void UmbralAudioProcessorEditor::refreshRouteSources() {
+  const bool showSerial = processor_.getSensorListen() == glow::SensorListen::Serial;
+  const auto keys = enabledSourceKeys();
+  const auto latest = processor_.getWsLatest();
+  const bool haveSerial = processor_.lastSerialRaw() >= 0;
+  for (auto& row : destRows_)
+    row->setSources(showSerial, keys, row->selectedSource(), latest, processor_.lastSerialSmoothed(), haveSerial);
 }
 
 void UmbralAudioProcessorEditor::setStatus(const juce::String& text, bool isError) {
@@ -1252,7 +1269,7 @@ void UmbralAudioProcessorEditor::updateDroneReadout() {
   else
     text << "MIDI " << juce::String(midi, 2);
   text << "  |  " << juce::String(hz, 1) << " Hz";
-  if (processor_.isSerialPitchLive()) text << "  (serial)";
+  if (processor_.isSerialPitchLive()) text << "  (sensor)";
   droneReadout_.setText(text, juce::dontSendNotification);
   for (int i = 0; i < 2; ++i) {
     const float extraHz = processor_.getPitchFrequencyHz(i + 1);
@@ -1273,12 +1290,12 @@ void UmbralAudioProcessorEditor::updateParamLockUi() {
   pxLevelSlider_.setEnabled(!pxLevelLocked);
   pxLevelSlider_.setAlpha(pxLevelLocked ? 0.55f : 1.0f);
   for (auto& row : synthSliders_) {
-    const bool locked = processor_.isSerialConnected() && processor_.isSerialDriving(row->id);
+    const bool locked = processor_.isSerialDriving(row->id);
     row->slider.setEnabled(!locked);
     row->slider.setAlpha(locked ? 0.55f : 1.0f);
   }
   for (auto& row : modSliders_) {
-    const bool locked = processor_.isSerialConnected() && processor_.isSerialDriving(row->id);
+    const bool locked = processor_.isSerialDriving(row->id);
     row->slider.setEnabled(!locked);
     row->slider.setAlpha(locked ? 0.55f : 1.0f);
   }
@@ -1307,6 +1324,61 @@ void UmbralAudioProcessorEditor::syncSlidersFromEngine() {
   updateParamLockUi();
 }
 
+void UmbralAudioProcessorEditor::appendWsChunk(const juce::String& chunk) {
+  if (chunk.isEmpty()) return;
+  juce::StringArray blocks;
+  blocks.addLines(chunk);
+  juce::String block;
+  for (const auto& line : blocks) {
+    if (line.isEmpty()) {
+      if (block.isNotEmpty()) {
+        wsHistory_.add(block.trim());
+        block.clear();
+      }
+      continue;
+    }
+    if (block.isNotEmpty()) block << "\n";
+    block << line;
+  }
+  if (block.isNotEmpty()) wsHistory_.add(block.trim());
+  while (wsHistory_.size() > 40) wsHistory_.remove(0);
+  if (!debugShowsWs_ || !debugConsole_.isVisible()) return;
+  juce::String out;
+  for (const auto& entry : wsHistory_) out << entry << "\n\n";
+  debugConsole_.setText(out, false);
+  debugConsole_.moveCaretToEnd();
+}
+
+void UmbralAudioProcessorEditor::showDebugTab(bool websocket) {
+  debugShowsWs_ = websocket;
+  serialDebugTab_.setColour(juce::TextButton::buttonColourId,
+                            websocket ? juce::Colour(0x14ffffff) : kAccent.withAlpha(0.28f));
+  wsDebugTab_.setColour(juce::TextButton::buttonColourId,
+                        websocket ? kAccent.withAlpha(0.28f) : juce::Colour(0x14ffffff));
+  if (websocket) {
+    juce::String out;
+    for (const auto& entry : wsHistory_) out << entry << "\n\n";
+    debugConsole_.setText(out, false);
+  } else {
+    rebuildDebugView();
+  }
+  resized();
+}
+
+void UmbralAudioProcessorEditor::openSensorConfig() {
+  auto* content = new SensorConfigComponent(processor_, brandFont_, [this] {
+    refreshRouteSources();
+    setStatus(juce::String::fromUTF8("Config guardada."));
+  });
+  content->setSize(520, 640);
+  auto* window = new juce::DialogWindow("config", juce::Colour(0xff141416), true);
+  window->setContentOwned(content, true);
+  window->setUsingNativeTitleBar(true);
+  window->centreAroundComponent(this, 520, 640);
+  window->setVisible(true);
+  window->enterModalState(true, nullptr, true);
+}
+
 void UmbralAudioProcessorEditor::appendDebugChunk(const juce::String& chunk) {
   if (chunk.isEmpty()) return;
   juce::StringArray lines;
@@ -1314,7 +1386,7 @@ void UmbralAudioProcessorEditor::appendDebugChunk(const juce::String& chunk) {
   for (auto& line : lines)
     if (line.isNotEmpty()) debugHistory_.add(line);
   while (debugHistory_.size() > 400) debugHistory_.remove(0);
-  rebuildDebugView();
+  if (!debugShowsWs_) rebuildDebugView();
 }
 
 void UmbralAudioProcessorEditor::rebuildDebugView() {
@@ -1359,25 +1431,24 @@ void UmbralAudioProcessorEditor::textEditorTextChanged(juce::TextEditor& ed) {
   if (&ed == &debugFilter_) rebuildDebugView();
 }
 
-void UmbralAudioProcessorEditor::textEditorReturnKeyPressed(juce::TextEditor& ed) {
-  if (&ed != &remoteUrlEdit_) return;
-  const auto url = remoteUrlEdit_.getText().trim();
-  if (url.isEmpty()) {
-    setStatus("URL vacia.", true);
-    return;
-  }
-  processor_.connectRemote(url);
-}
-
 void UmbralAudioProcessorEditor::timerCallback() {
   engineButton_.setButtonText(processor_.isEngineOn() ? "stop" : "start");
-  remoteButton_.setButtonText(processor_.isRemoteEnabled() ? "cortar" : "vincular");
-  remoteButton_.setColour(juce::TextButton::buttonColourId,
-                          processor_.isRemoteConnected() ? kAccent.withAlpha(0.28f)
-                                                         : juce::Colour(0x14ffffff));
+
+  if (!syncingUi_) {
+    syncingUi_ = true;
+    const auto listen = processor_.getSensorListen();
+    serialListen_.setToggleState(listen == glow::SensorListen::Serial, juce::dontSendNotification);
+    wsListen_.setToggleState(listen == glow::SensorListen::WebSocket, juce::dontSendNotification);
+    syncingUi_ = false;
+  }
 
   juce::String status;
-  if (processor_.isSerialConnected()) status = processor_.getSerialStatus();
+  if (processor_.getSensorListen() == glow::SensorListen::Serial && processor_.isSerialConnected())
+    status = processor_.getSerialStatus();
+  if (processor_.getSensorListen() == glow::SensorListen::WebSocket) {
+    const auto ws = processor_.getWsStatus();
+    if (ws.isNotEmpty()) status = ws;
+  }
   const auto remote = processor_.getRemoteStatus();
   if (remote.isNotEmpty()) {
     if (status.isNotEmpty()) status << "  |  ";
@@ -1393,8 +1464,10 @@ void UmbralAudioProcessorEditor::timerCallback() {
     const bool debugOn = processor_.isSerialDebugConsole();
     debugToggle_.setToggleState(debugOn, juce::dontSendNotification);
     debugConsole_.setVisible(debugOn);
-    debugFilter_.setVisible(debugOn);
-    filterLabel_.setVisible(debugOn);
+    serialDebugTab_.setVisible(debugOn);
+    wsDebugTab_.setVisible(debugOn);
+    debugFilter_.setVisible(debugOn && !debugShowsWs_);
+    filterLabel_.setVisible(debugOn && !debugShowsWs_);
     resized();
     updateDroneReadout();
     updateParamLockUi();
@@ -1410,9 +1483,16 @@ void UmbralAudioProcessorEditor::timerCallback() {
     resized();
   }
 
+  refreshRouteSources();
   syncSlidersFromEngine();
   updateWaveGraph();
-  if (debugConsole_.isVisible()) appendDebugChunk(processor_.consumeDebugLog());
+  if (debugConsole_.isVisible()) {
+    appendDebugChunk(processor_.consumeDebugLog());
+    appendWsChunk(processor_.consumeWsDebugLog());
+  } else {
+    processor_.consumeDebugLog();
+    processor_.consumeWsDebugLog();
+  }
 }
 
 void UmbralAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
@@ -1431,9 +1511,9 @@ void UmbralAudioProcessorEditor::sliderValueChanged(juce::Slider* slider) {
   }
 }
 
-bool UmbralAudioProcessorEditor::applyFromUi(bool connectSerial) {
+bool UmbralAudioProcessorEditor::applyFromUi() {
   juce::String status;
-  if (!processor_.applyConfig(buildConfigFromUi(), status, connectSerial)) {
+  if (!processor_.applyConfig(buildConfigFromUi(), status, false)) {
     setStatus(status, true);
     return false;
   }
@@ -1513,22 +1593,9 @@ void UmbralAudioProcessorEditor::refreshEngineUi() {
 void UmbralAudioProcessorEditor::comboBoxChanged(juce::ComboBox* box) {
   if (box == &waveBox_ || box == &quantBox_) {
     if (syncingUi_) return;
-    // Apply wave/scale immediately so synth is editable without serial.
     juce::String status;
     processor_.applyConfig(buildConfigFromUi(), status, false);
     updateWaveGraph();
-    return;
-  }
-  if (box == &midiOutBox_) {
-    if (ignoreMidiOutChange_) return;
-    const int idx = midiOutBox_.getSelectedItemIndex();
-    const juce::String identifier =
-        (idx >= 0 && idx < midiOutIds_.size()) ? midiOutIds_[idx] : juce::String();
-    juce::String status;
-    if (!processor_.setMidiOutputDevice(identifier, status))
-      setStatus(status, true);
-    else
-      setStatus(status);
     return;
   }
   if (ignorePresetChange_ || box != &presetBox_) return;
@@ -1590,30 +1657,38 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
     syncSlidersFromEngine();
     return;
   }
-  if (button == &remoteButton_) {
-    if (processor_.isRemoteEnabled()) {
-      processor_.disconnectRemote();
-      setStatus(U8("Remoto desconectado."));
-      return;
+  if (button == &serialListen_ || button == &wsListen_) {
+    if (syncingUi_) return;
+    glow::SensorListen mode = glow::SensorListen::Off;
+    if (button == &serialListen_ && serialListen_.getToggleState()) {
+      syncingUi_ = true;
+      wsListen_.setToggleState(false, juce::dontSendNotification);
+      syncingUi_ = false;
+      mode = glow::SensorListen::Serial;
+    } else if (button == &wsListen_ && wsListen_.getToggleState()) {
+      syncingUi_ = true;
+      serialListen_.setToggleState(false, juce::dontSendNotification);
+      syncingUi_ = false;
+      mode = glow::SensorListen::WebSocket;
     }
-    const auto url = remoteUrlEdit_.getText().trim();
-    if (url.isEmpty()) {
-      setStatus("URL vacia.", true);
-      return;
-    }
-    processor_.connectRemote(url);
-    return;
-  }
-  if (button == &refreshPortsButton_) {
-    refreshSerialPorts();
-    refreshMidiOutputs();
-    setStatus(U8("Puertos actualizados."));
-    return;
-  }
-  if (button == &disconnectButton_) {
-    processor_.disconnectSerial();
+    juce::String status;
+    const bool ok = processor_.setSensorListen(mode, status);
+    syncingUi_ = true;
+    const auto now = processor_.getSensorListen();
+    serialListen_.setToggleState(now == glow::SensorListen::Serial, juce::dontSendNotification);
+    wsListen_.setToggleState(now == glow::SensorListen::WebSocket, juce::dontSendNotification);
+    syncingUi_ = false;
     updateParamLockUi();
-    setStatus(U8("Serial desconectado."));
+    refreshRouteSources();
+    setStatus(status, !ok);
+    return;
+  }
+  if (button == &configButton_) {
+    openSensorConfig();
+    return;
+  }
+  if (button == &serialDebugTab_ || button == &wsDebugTab_) {
+    showDebugTab(button == &wsDebugTab_);
     return;
   }
   if (button == &addDestButton_) {
@@ -1621,24 +1696,38 @@ void UmbralAudioProcessorEditor::buttonClicked(juce::Button* button) {
       setStatus(U8("M\xc3\xa1ximo de destinos alcanzado."), true);
       return;
     }
-    addDestinationRow({glow::SerialDestination::ChordSpread, 0.0f, 1.0f, false});
+    glow::SerialRoute route;
+    route.destination = glow::SerialDestination::ChordSpread;
+    route.min = 0.0f;
+    route.max = 1.0f;
+    addDestinationRow(route);
     return;
   }
   if (button == &debugToggle_) {
     const bool on = debugToggle_.getToggleState();
     processor_.setSerialDebugConsole(on);
     debugConsole_.setVisible(on);
-    filterLabel_.setVisible(on);
-    debugFilter_.setVisible(on);
+    serialDebugTab_.setVisible(on);
+    wsDebugTab_.setVisible(on);
+    filterLabel_.setVisible(on && !debugShowsWs_);
+    debugFilter_.setVisible(on && !debugShowsWs_);
     if (!on) {
       debugConsole_.clear();
       debugHistory_.clear();
+      wsHistory_.clear();
+      processor_.consumeDebugLog();
+      processor_.consumeWsDebugLog();
+    } else if (debugShowsWs_) {
+      juce::String out;
+      for (const auto& block : wsHistory_) out << block << "\n";
+      debugConsole_.setText(out, false);
+      debugConsole_.moveCaretToEnd();
+    } else {
+      rebuildDebugView();
     }
     resized();
-    setStatus(on ? U8("Debug on \xe2\x80\x94 filtro ej. chord.spread, px.freq_shift")
-                 : U8("Debug off."));
+    setStatus(on ? U8("Debug on.") : U8("Debug off."));
     return;
   }
-  if (button == &applyButton_) applyFromUi(false);
-  if (button == &connectButton_) applyFromUi(true);
+  if (button == &applyButton_) applyFromUi();
 }

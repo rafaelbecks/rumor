@@ -285,13 +285,29 @@ inline bool serialDestinationIsOutputLevel(SerialDestination destination) {
   return destination == SerialDestination::GranLevel || destination == SerialDestination::PxLevel;
 }
 
-/** One serial reading mapped onto a destination. Up to kSerialMaxDestinations. */
+/** One reading mapped onto a destination. Up to kSerialMaxDestinations. */
 struct SerialRoute {
   SerialDestination destination{SerialDestination::ChordSpread};
   float min{0.0f};
   float max{1.0f};
   bool invert{false};  // swap min/max mapping (high input → min)
   int midiCc{1};       // 0–127 when destination == MidiCc
+  std::string source;  // empty or "serial" = ADC; otherwise a websocket JSON key
+};
+
+/** Empty source and "serial" both read the USB ADC. Any other string is a websocket key. */
+inline bool routeReadsSerial(const SerialRoute& route) {
+  return route.source.empty() || route.source == "serial";
+}
+
+enum class SensorListen { Off = 0, Serial = 1, WebSocket = 2 };
+
+/** One numeric JSON key the websocket sensor can map, with its own input window. */
+struct WsInput {
+  std::string key;
+  float low{0.0f};
+  float high{1.0f};
+  bool enabled{false};
 };
 
 /**
@@ -313,6 +329,8 @@ struct SerialConfig {
   std::optional<bool> demo;
   std::optional<double> demoSeconds;
   std::vector<SerialRoute> destinations;
+  std::string wsUrl;
+  std::vector<WsInput> wsKeys;
 };
 
 /** Legal output span for each destination. */
@@ -560,6 +578,9 @@ class SerialPitch {
   }
 
   void setRoutes(std::vector<SerialRoute> routes) { routes_ = std::move(routes); }
+
+  /** Map one reading through a single route. Safe to call from the serial or websocket thread. */
+  void applyRoute(float input, float inLow, float inHigh, const SerialRoute& route);
 
   void setOnReading(std::function<void(int rawAdc, float smoothed)> cb) {
     onReading_ = std::move(cb);

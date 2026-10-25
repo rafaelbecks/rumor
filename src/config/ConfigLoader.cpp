@@ -117,6 +117,46 @@ bool parseSerialObject(const nlohmann::json& j, SerialConfig& out, std::string& 
     return false;
   }
 
+  if (j.contains("wsUrl") && j["wsUrl"].is_string()) out.wsUrl = j["wsUrl"].get<std::string>();
+  if (j.contains("wsKeys")) {
+    const auto& keys = j["wsKeys"];
+    if (!keys.is_array()) {
+      errorOut = "wsKeys must be an array";
+      return false;
+    }
+    if (keys.size() > 64) {
+      errorOut = "at most 64 websocket keys";
+      return false;
+    }
+    for (const auto& item : keys) {
+      if (!item.is_object() || !item.contains("key") || !item["key"].is_string()) {
+        errorOut = "wsKeys entries need a string \"key\"";
+        return false;
+      }
+      WsInput input;
+      input.key = item["key"].get<std::string>();
+      if (input.key.empty() || input.key == "serial") {
+        errorOut = "websocket key must be a non-empty name other than serial";
+        return false;
+      }
+      for (const auto& existing : out.wsKeys) {
+        if (existing.key == input.key) {
+          errorOut = "duplicate websocket key " + input.key;
+          return false;
+        }
+      }
+      input.low = item.value("low", 0.0f);
+      input.high = item.value("high", 1.0f);
+      input.enabled = item.value("enabled", false);
+      const bool emptySpan = !(input.low < input.high) && !(input.high < input.low);
+      if (emptySpan) {
+        errorOut = "websocket key " + input.key + " needs two different range ends";
+        return false;
+      }
+      out.wsKeys.push_back(std::move(input));
+    }
+  }
+
   if (!j.contains("destinations")) return true;
   const auto& destinations = j["destinations"];
   if (!destinations.is_array()) {
@@ -196,8 +236,12 @@ bool parseSerialObject(const nlohmann::json& j, SerialConfig& out, std::string& 
                  std::to_string(limitLow) + "-" + std::to_string(limitHigh);
       return false;
     }
+    std::string source;
+    if (item.contains("source") && item["source"].is_string())
+      source = item["source"].get<std::string>();
+    if (source == "serial") source.clear();
     out.destinations.push_back(
-        SerialRoute{destination, low, high, item.value("invert", false), midiCc});
+        SerialRoute{destination, low, high, item.value("invert", false), midiCc, std::move(source)});
   }
   return true;
 }

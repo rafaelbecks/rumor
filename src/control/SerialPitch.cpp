@@ -249,25 +249,20 @@ void SerialPitch::processIncomingBytes(const char* buf, int n, SerialAdcParser& 
 
     if (debug_) std::cout << "[serial] " << adc << " →";
     for (const SerialRoute& route : routes_) {
-      float outLow = route.min;
-      float outHigh = route.max;
-      if (route.invert) std::swap(outLow, outHigh);
-      const float mapped = serialMap(smoothed, inputLow_, inputHigh_, outLow, outHigh);
+      if (!routeReadsSerial(route)) continue;
+      applyRoute(smoothed, inputLow_, inputHigh_, route);
       if (route.destination == SerialDestination::Pitch) {
-        if (performance_ != nullptr) performance_->setSerialMidi(mapped);
-        pitchNote = mapped;
+        float outLow = route.min;
+        float outHigh = route.max;
+        if (route.invert) std::swap(outLow, outHigh);
+        pitchNote = serialMap(smoothed, inputLow_, inputHigh_, outLow, outHigh);
         havePitch = true;
-      } else if (route.destination == SerialDestination::MidiCc) {
-        if (onMidiCc_) onMidiCc_(route.midiCc, mapped);
-      } else if (serialDestinationIsPaulXStretch(route.destination) ||
-                 serialDestinationIsOutputLevel(route.destination)) {
-        if (onEngineParam_) onEngineParam_(serialDestinationName(route.destination), mapped);
-      } else {
-        ParameterID paramId = ParameterID::Count;
-        if (serialDestinationToParameter(route.destination, paramId) && registry_ != nullptr)
-          registry_->setTarget(paramId, mapped);
       }
       if (debug_) {
+        float outLow = route.min;
+        float outHigh = route.max;
+        if (route.invert) std::swap(outLow, outHigh);
+        const float mapped = serialMap(smoothed, inputLow_, inputHigh_, outLow, outHigh);
         std::cout << " " << serialDestinationName(route.destination);
         if (route.destination == SerialDestination::MidiCc) std::cout << "[" << route.midiCc << "]";
         std::cout << " " << mapped;
@@ -283,6 +278,25 @@ void SerialPitch::processIncomingBytes(const char* buf, int n, SerialAdcParser& 
                   << "\n";
       }
     }
+  }
+}
+
+void SerialPitch::applyRoute(float input, float inLow, float inHigh, const SerialRoute& route) {
+  float outLow = route.min;
+  float outHigh = route.max;
+  if (route.invert) std::swap(outLow, outHigh);
+  const float mapped = serialMap(input, inLow, inHigh, outLow, outHigh);
+  if (route.destination == SerialDestination::Pitch) {
+    if (performance_ != nullptr) performance_->setSerialMidi(mapped);
+  } else if (route.destination == SerialDestination::MidiCc) {
+    if (onMidiCc_) onMidiCc_(route.midiCc, mapped);
+  } else if (serialDestinationIsPaulXStretch(route.destination) ||
+             serialDestinationIsOutputLevel(route.destination)) {
+    if (onEngineParam_) onEngineParam_(serialDestinationName(route.destination), mapped);
+  } else {
+    ParameterID paramId = ParameterID::Count;
+    if (serialDestinationToParameter(route.destination, paramId) && registry_ != nullptr)
+      registry_->setTarget(paramId, mapped);
   }
 }
 

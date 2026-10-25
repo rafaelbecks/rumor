@@ -6,13 +6,14 @@ namespace umbral_presets {
 namespace {
 
 juce::var makeDest(const char* param, double minV, double maxV, bool invert = false,
-                   int midiCc = -1) {
+                   int midiCc = -1, const juce::String& source = {}) {
   auto* o = new juce::DynamicObject();
   o->setProperty("parameter", param);
   o->setProperty("min", minV);
   o->setProperty("max", maxV);
   o->setProperty("invert", invert);
   if (midiCc >= 0) o->setProperty("cc", midiCc);
+  if (source.isNotEmpty()) o->setProperty("source", source);
   return juce::var(o);
 }
 
@@ -99,10 +100,21 @@ juce::var capturePreset(const UmbralAudioProcessor& processor, const juce::Strin
   juce::Array<juce::var> destinations;
   for (const auto& d : cfg.destinations) {
     const int cc = d.destination == glow::SerialDestination::MidiCc ? d.midiCc : -1;
-    destinations.add(
-        makeDest(glow::serialDestinationName(d.destination), d.min, d.max, d.invert, cc));
+    destinations.add(makeDest(glow::serialDestinationName(d.destination), d.min, d.max, d.invert, cc,
+                              d.source.empty() ? juce::String() : juce::String(d.source)));
   }
   root->setProperty("destinations", destinations);
+  root->setProperty("wsUrl", juce::String(cfg.wsUrl));
+  juce::Array<juce::var> wsKeys;
+  for (const auto& key : cfg.wsKeys) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("key", juce::String(key.key));
+    item->setProperty("low", key.low);
+    item->setProperty("high", key.high);
+    item->setProperty("enabled", key.enabled);
+    wsKeys.add(juce::var(item));
+  }
+  root->setProperty("wsKeys", wsKeys);
 
   auto* params = new juce::DynamicObject();
   for (size_t i = 0; i < glow::ParameterRegistry::count(); ++i) {
@@ -191,6 +203,10 @@ bool applyPreset(UmbralAudioProcessor& processor, const juce::var& preset, juce:
     inHi = static_cast<int>(input[1]);
   }
   serialJson << "  \"input\": [" << inLo << ", " << inHi << "],\n";
+  if (preset.hasProperty("wsUrl"))
+    serialJson << "  \"wsUrl\": " << juce::JSON::toString(preset["wsUrl"]) << ",\n";
+  if (preset.hasProperty("wsKeys"))
+    serialJson << "  \"wsKeys\": " << juce::JSON::toString(preset["wsKeys"]) << ",\n";
   serialJson << "  \"destinations\": [\n";
 
   const auto destinations = preset["destinations"];
@@ -200,6 +216,8 @@ bool applyPreset(UmbralAudioProcessor& processor, const juce::var& preset, juce:
       serialJson << "    { \"parameter\": \"" << d.getProperty("parameter", "pitch").toString()
                  << "\"";
       if (d.hasProperty("cc")) serialJson << ", \"cc\": " << static_cast<int>(d["cc"]);
+      if (d.hasProperty("source"))
+        serialJson << ", \"source\": " << juce::JSON::toString(d["source"]);
       serialJson << ", \"min\": " << static_cast<double>(d.getProperty("min", 0.0))
                  << ", \"max\": " << static_cast<double>(d.getProperty("max", 1.0))
                  << ", \"invert\": "
@@ -217,8 +235,12 @@ bool applyPreset(UmbralAudioProcessor& processor, const juce::var& preset, juce:
     return false;
   }
 
-  // Keep whatever port the user already selected / connected.
-  cfg.port = processor.getSerialConfig().port;
+  const auto previous = processor.getSerialConfig();
+  cfg.port = previous.port;
+  if (!preset.hasProperty("wsUrl")) {
+    cfg.wsUrl = previous.wsUrl;
+    cfg.wsKeys = previous.wsKeys;
+  }
 
   if (!processor.applyConfig(cfg, statusOut, false)) return false;
 
