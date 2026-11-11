@@ -1,0 +1,13 @@
+{
+  "_note": "RUMOR vision calibration. Press S in the app to overwrite this file.",
+  "exposure": 22,
+  "gain": 52,
+  "contrast": 3.0,
+  "brightness": 49,
+  "gamma": 1.0,
+  "min_brightness": 221,
+  "max_saturation": 36,
+  "min_blob_area": 11879,
+  "max_blob_area": 279230,
+  "max_radial_zone": 264
+}

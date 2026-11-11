@@ -1,0 +1,7 @@
+# RUMOR vision — Python 3.10 or newer.
+# MediaPipe is the optional hand detector. If a wheel is not available for
+# your platform, install the other three packages and the blob tracker still runs.
+opencv-python>=4.9
+mediapipe>=0.10.14
+python-osc>=1.8.3
+numpy>=1.26
