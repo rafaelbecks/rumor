@@ -11,6 +11,7 @@ Software para una **instalación interactiva** de sonido, agua, vibración y luz
 | ------------------------------------------------------------------- | ---------------------------------------------------------- |
 | [firmware/capacitive-sensor/](firmware/capacitive-sensor/README.md) | Sketch Arduino del sensor capacitivo, cableado y Serial    |
 | [hardware/alcantarilla/](hardware/alcantarilla/README.md)           | Modelo de la placa (SVG / DXF / GLB) para fabricación      |
+| [docs/raspberry-pi.md](docs/raspberry-pi.md)                         | Flash y puesta en marcha en Raspberry Pi 5 (4 GB)          |
 | [docs/TODO.md](docs/TODO.md)                                        | Pendientes (calibración remota, presencia, Pi headless, …) |
 
 
