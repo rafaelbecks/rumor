@@ -10,7 +10,7 @@ This is written for Raspberry Pi OS **64-bit Bookworm with desktop**, a USB webc
 | --- | --- | --- |
 | `remote` (Socket.IO hub) | No | Browser on another machine: `http://<pi>:8080` |
 | RUMOR standalone (synth + PaulXStretch) | It opens a window once | After it is linked, the websocket page drives parameters, presets, and the serial sensor |
-| Vision soterrada | Yes, while you lock the object | OpenCV window. There is no vision page on the websocket hub |
+| Vision soterrada | No, for a camera test | `--headless` prints fps in the terminal. The window is only needed to lock the object |
 
 The websocket hub already in `remote/` talks to the JUCE app. It does not draw the camera, the faders, or **Fijar**. Vision also does not drive the synth yet: it sends OSC to `127.0.0.1:8000`, and the standalone does not listen on that port. Both can run on the Pi today; the proximity value does not move a synth parameter until that bridge exists.
 
@@ -172,6 +172,17 @@ v4l2-ctl --list-devices
 ```
 
 You want `/dev/video0` (or another index you will pass as `--camera`). If the list is empty, the webcam is not UVC, the cable is power-only, or the user is not in the `video` group yet.
+
+A headless camera test runs the tracker and logs fps to the terminal. No window:
+
+```bash
+cd ~/rumor/vision
+source .venv/bin/activate
+python main.py --headless --frames 150 --camera 0 \
+  --width 640 --height 480 --software-exposure --no-osc
+```
+
+Once a second it prints a line like `18 fps  expo SW  gan SW  sin objeto  auto`. At the end it prints `average N fps over 150 frames`. Leave `--frames` off to keep running until Ctrl-C. The log is the terminal, not a file.
 
 ## 8. Websocket hub
 

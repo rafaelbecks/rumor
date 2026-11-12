@@ -52,7 +52,11 @@ Desde el directorio vision, con el entorno virtual activo:
   python main.py --camera 0 --host 127.0.0.1 --port 8000
   python main.py --width 1280 --height 720 --calibration calibration.json
   python main.py --hands --debug --software-exposure
+  python main.py --headless --frames 150 --width 640 --height 480 --no-osc
   python main.py --self-test
+
+--headless no abre ventana. Escribe los fps en la terminal una vez por segundo.
+--frames N corta despues de N cuadros e imprime el promedio. Ctrl-C tambien corta.
 
 La barra tiene la camara, el host y puerto OSC, y los faders.
 Clic en el host o el puerto, escribir, y Enter para aplicar.
@@ -124,7 +128,12 @@ def main(argv: list[str] | None = None) -> int:
     if session.hands:
         tracker.set_hands(True)
     open_index = session.camera_index
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    headless = bool(args.headless)
+    frame_limit = max(0, int(args.frames))
+    if headless:
+        print("Headless. FPS is printed here once a second. Ctrl-C stops.")
+    else:
+        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     ctx: dict[str, object] = {
         "session": session,
         "bar": bar,
@@ -134,10 +143,14 @@ def main(argv: list[str] | None = None) -> int:
         "video_wh": (args.width, args.height),
         "calibration_path": calibration_path,
     }
-    cv2.setMouseCallback(WINDOW_NAME, lambda event, x, y, flags, _param: _on_mouse(event, x, y, flags, ctx))
+    if not headless:
+        cv2.setMouseCallback(WINDOW_NAME, lambda event, x, y, flags, _param: _on_mouse(event, x, y, flags, ctx))
 
     fps = 0.0
     previous = time.perf_counter()
+    logged_at = previous
+    started = previous
+    counted = 0
     misses = 0
     announced = False
     window_was_visible = False
@@ -167,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 height, width = frame.shape[:2]
                 print(f"Camera frame {width}x{height}")
                 announced = True
+                started = time.perf_counter()
 
             adjusted = apply_image_adjustments(frame, session.calibration, camera.support)
             ctx["adjusted"] = adjusted
@@ -185,7 +199,15 @@ def main(argv: list[str] | None = None) -> int:
             if delta > 0:
                 sample = 1.0 / delta
                 fps = sample if fps == 0.0 else (0.9 * fps + 0.1 * sample)
+            counted += 1
             session.status = _status_line(result, session, camera, fps)
+            if headless and now - logged_at >= 1.0:
+                print(session.status, flush=True)
+                logged_at = now
+            if frame_limit and counted >= frame_limit:
+                break
+            if headless:
+                continue
 
             video = render_view(adjusted, result, session.calibration, session.debug, session.pick)
             shown = np.vstack([bar.draw(video.shape[1], session), video])
@@ -224,9 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if headless and counted > 0:
+            elapsed = max(1e-6, time.perf_counter() - started)
+            print(f"average {counted / elapsed:.1f} fps over {counted} frames")
         tracker.close()
         capture.release()
-        cv2.destroyAllWindows()
+        if not headless:
+            cv2.destroyAllWindows()
     return 0
 
 
@@ -277,6 +303,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="ignore camera exposure and gain even if the driver accepts them",
     )
     parser.add_argument("--no-osc", action="store_true", help="run the view without sending OSC")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="no window; print fps to the terminal once a second",
+    )
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=0,
+        help="stop after this many frames and print the average fps (0 runs until quit)",
+    )
     parser.add_argument(
         "--self-test",
         action="store_true",

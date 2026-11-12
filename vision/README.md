@@ -24,7 +24,7 @@ python main.py --camera 0 --width 1280 --height 720 \
   --calibration calibration.json
 ```
 
-Other flags: `--hands` (MediaPipe), `--debug`, `--software-exposure` (ignore the camera's exposure even if the driver accepts it), `--no-osc`. `python main.py --help` prints the same key and OSC reference the app prints on startup.
+Other flags: `--hands` (MediaPipe), `--debug`, `--software-exposure` (ignore the camera's exposure even if the driver accepts it), `--no-osc`. `--headless` skips the window and prints the fps once a second. `--frames 150` stops after 150 frames and prints the average. `python main.py --help` prints the same key and OSC reference the app prints on startup.
 
 On macOS, if the window stays black, allow camera access for the terminal or Cursor in System Settings.
 
