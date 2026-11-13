@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 import signal
 import sys
@@ -320,6 +321,34 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def prepare_debug_display() -> None:
+    """The pip OpenCV wheel only includes the Qt xcb plugin, which needs an X11 display.
+
+    Raspberry Pi OS often leaves DISPLAY empty in SSH and in some Wayland terminals,
+    even while the local desktop is available on :0 through Xwayland.
+    """
+    if sys.platform != "linux" or os.environ.get("DISPLAY"):
+        return
+
+    if Path("/tmp/.X11-unix/X0").exists():
+        os.environ["DISPLAY"] = ":0"
+        xauth = Path.home() / ".Xauthority"
+        if not os.environ.get("XAUTHORITY") and xauth.is_file():
+            os.environ["XAUTHORITY"] = str(xauth)
+        logger.info("DISPLAY no estaba definido. Usando el escritorio local :0.")
+        return
+
+    logger.error(
+        "No hay un display X11 para la ventana de calibración. "
+        "Ábrela en el escritorio de la Raspberry Pi, o por SSH con "
+        "'DISPLAY=:0 python main.py --debug-gui'. "
+        "Si el escritorio está en Wayland sin Xwayland, pasa a X11 con "
+        "sudo raspi-config (Advanced Options → Wayland → X11) y reinicia. "
+        "Sin ventana: python main.py --headless"
+    )
+    sys.exit(1)
+
+
 def main() -> None:
     args = parse_args()
     config_path = Path(args.config).resolve()
@@ -387,6 +416,7 @@ def main() -> None:
 
     window_name = "Radial Proximity Tracker - Debug & Calibration"
     if debug_gui:
+        prepare_debug_display()
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
         def on_mouse(event: int, x: int, y: int, _flags: int, _param: Any) -> None:
