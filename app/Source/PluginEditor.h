@@ -90,7 +90,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   void syncSlidersFromEngine();
   void updateDroneReadout();
   void updateParamLockUi();
-  void setStatus(const juce::String& text, bool isError = false);
+  void setStatus(const juce::String& text, bool isError = false, bool fromTimer = false);
   void loadConfigIntoUi(const glow::SerialConfig& cfg);
   glow::SerialConfig buildConfigFromUi() const;
   void addDestinationRow(const glow::SerialRoute& route);
@@ -98,6 +98,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   bool applyFromUi();
   void openSensorConfig();
   void refreshRouteSources();
+  void publishOscRoutes();
   std::vector<std::string> enabledSourceKeys() const;
   void appendWsChunk(const juce::String& chunk);
   void showDebugTab(bool websocket);
@@ -124,6 +125,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
   juce::Label titleLabel_;
   juce::Label subtitleLabel_;
   juce::Label statusLabel_;
+  juce::int64 statusHoldUntilMs_{0};
   juce::ComboBox presetBox_;
   juce::TextButton savePresetButton_;
   juce::TextButton engineButton_;

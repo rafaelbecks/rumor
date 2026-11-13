@@ -507,7 +507,10 @@ function addDestRow(route) {
     <label class="check"><input class="inv" type="checkbox" ${route.invert ? "checked" : ""}>inv</label>
     <span class="live"></span>
     <button type="button" class="remove">quitar</button>`;
-  row.querySelector(".remove").onclick = () => row.remove();
+  row.querySelector(".remove").onclick = () => {
+    row.remove();
+    scheduleOscMap();
+  };
   row.querySelector(".paramSel").onchange = () => {
     const spec = (ui.catalog.destinations || []).find((dest) => dest.id === row.querySelector(".paramSel").value);
     row.querySelector(".cc").hidden = row.querySelector(".paramSel").value !== "midi.cc";
@@ -515,12 +518,25 @@ function addDestRow(route) {
       row.querySelector(".min").value = spec.lo;
       row.querySelector(".max").value = spec.hi;
     }
+    scheduleOscMap();
   };
+  row.querySelector(".oscAddr").addEventListener("input", scheduleOscMap);
+  row.querySelector(".min").addEventListener("change", scheduleOscMap);
+  row.querySelector(".max").addEventListener("change", scheduleOscMap);
+  row.querySelector(".inv").addEventListener("change", scheduleOscMap);
   row.querySelector(".cc").hidden = (route.parameter || "") !== "midi.cc";
   const source = row.querySelector(".sourceSel");
   source.dataset.source = route.source || "";
   source.onchange = () => { source.dataset.source = source.value; };
   $("dests").appendChild(row);
+}
+
+function scheduleOscMap() {
+  clearTimeout(ui.oscMap);
+  ui.oscMap = setTimeout(() => {
+    if ((ui.state?.sensorListen || "off") !== "osc") return;
+    cmd({ t: "setConfig", config: { destinations: readDests() } });
+  }, 200);
 }
 
 function readDests() {

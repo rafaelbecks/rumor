@@ -62,6 +62,8 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
 
   glow::SerialConfig getSerialConfig() const;
   bool applyConfig(glow::SerialConfig cfg, juce::String& statusOut, bool connectSerial);
+  /** Swap destination rows without reopening the port or restarting the drone. */
+  void installDestinationRoutes(std::vector<glow::SerialRoute> routes);
 
   void disconnectSerial();
   bool isSerialConnected() const;
@@ -182,6 +184,7 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   void refreshSensorDrives();
   void handleWsValues(const std::vector<std::pair<std::string, float>>& values, const juce::String& pretty);
   void handleOsc(const juce::String& address, float value);
+  void applyOscValue(const std::string& key, float value);
   bool bindOsc(juce::String& statusOut);
   void stopOsc();
   bool routeIsLive(const glow::SerialRoute& route) const;

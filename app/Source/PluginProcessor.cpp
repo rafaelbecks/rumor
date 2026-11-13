@@ -3,6 +3,8 @@
 #include "OscInput.h"
 #include "Presets.h"
 
+#include <cmath>
+
 #include "audio/Oscillator.h"
 #include "util/MidiMath.h"
 #include "util/Scale.h"
@@ -863,6 +865,28 @@ void UmbralAudioProcessor::handleWsValues(const std::vector<std::pair<std::strin
   }
 }
 
+void UmbralAudioProcessor::applyOscValue(const std::string& key, float value) {
+  if (key.size() < 2 || getSensorListen() != glow::SensorListen::Osc) return;
+  glow::SerialConfig cfg;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    cfg = serialConfig_;
+  }
+  for (const auto& route : cfg.destinations) {
+    if (!glow::routeReadsOsc(route)) continue;
+    if (glow::normalizeOscAddress(route.source) != key) continue;
+    serialPitch_.applyRoute(value, 0.0f, 1.0f, route);
+    glow::ParameterID paramId = glow::ParameterID::Count;
+    if (!glow::serialDestinationToParameter(route.destination, paramId)) continue;
+    float outLow = route.min;
+    float outHigh = route.max;
+    if (route.invert) std::swap(outLow, outHigh);
+    // Registry writes alone get overwritten by the slider's parameter on the next
+    // audio block, and the timbre slider / waveform preview read that parameter.
+    setParameterTarget(paramId, glow::serialMap(value, 0.0f, 1.0f, outLow, outHigh));
+  }
+}
+
 void UmbralAudioProcessor::handleOsc(const juce::String& address, float value) {
   const auto key = glow::normalizeOscAddress(address.toStdString());
   if (key.size() < 2) return;
@@ -881,17 +905,39 @@ void UmbralAudioProcessor::handleOsc(const juce::String& address, float value) {
   }
   if (serialDebugConsole_.load())
     appendDebugLine(juce::String(key) + " " + juce::String(value, 3));
-  if (getSensorListen() != glow::SensorListen::Osc) return;
+  applyOscValue(key, value);
+}
 
-  glow::SerialConfig cfg;
+namespace {
+
+bool sameRoute(const glow::SerialRoute& a, const glow::SerialRoute& b) {
+  const auto close = [](float x, float y) { return std::abs(x - y) < 0.0001f; };
+  return a.destination == b.destination && a.invert == b.invert && a.midiCc == b.midiCc &&
+         a.source == b.source && close(a.min, b.min) && close(a.max, b.max);
+}
+
+bool sameRoutes(const std::vector<glow::SerialRoute>& a, const std::vector<glow::SerialRoute>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (!sameRoute(a[i], b[i])) return false;
+  return true;
+}
+
+}  // namespace
+
+void UmbralAudioProcessor::installDestinationRoutes(std::vector<glow::SerialRoute> routes) {
+  bool changed = false;
   {
     std::lock_guard<std::mutex> lock(configMutex_);
-    cfg = serialConfig_;
+    changed = !sameRoutes(serialConfig_.destinations, routes);
+    if (changed) serialConfig_.destinations = routes;
   }
-  for (const auto& route : cfg.destinations) {
-    if (route.source != key) continue;
-    serialPitch_.applyRoute(value, 0.0f, 1.0f, route);
-  }
+  if (!changed) return;
+  serialPitch_.setRoutes(routes);
+  refreshSensorDrives();
+  if (getSensorListen() != glow::SensorListen::Osc) return;
+  const auto latest = getOscLatest();
+  for (const auto& sample : latest) applyOscValue(sample.first, sample.second);
 }
 
 bool UmbralAudioProcessor::bindOsc(juce::String& statusOut) {
@@ -933,12 +979,9 @@ bool UmbralAudioProcessor::applyConfig(glow::SerialConfig cfg, juce::String& sta
   }
   if (getSensorListen() == glow::SensorListen::Osc) {
     for (auto& route : cfg.destinations) {
-      route.source = glow::normalizeOscAddress(route.source);
-      if (route.source.size() < 2) {
-        statusOut = juce::String::fromUTF8(
-            "Cada destino OSC necesita una direcci\xc3\xb3n, por ejemplo /proximidad.");
-        return false;
-      }
+      // Rows without an address stay idle. They must not reject the rows that have one.
+      if (!route.source.empty() && route.source.front() == '/')
+        route.source = glow::normalizeOscAddress(route.source);
     }
   }
   for (const auto& route : cfg.destinations) {

@@ -508,7 +508,13 @@ void UmbralAudioProcessorEditor::DestinationRow::setSources(
 }
 
 std::string UmbralAudioProcessorEditor::DestinationRow::selectedSource() const {
-  if (oscMode_) return glow::normalizeOscAddress(oscEdit.getText().toStdString());
+  if (oscMode_) {
+    const auto address = glow::normalizeOscAddress(oscEdit.getText().toStdString());
+    if (address.size() >= 2) return address;
+    // Blank OSC field keeps the serial / websocket origin instead of wiping it.
+    if (!nonOscSource_.empty() && nonOscSource_.front() != '/') return nonOscSource_;
+    return {};
+  }
   const int id = sourceBox.getSelectedId();
   if (id > 0 && id <= static_cast<int>(sourceIds_.size())) return sourceIds_[static_cast<size_t>(id - 1)];
   return nonOscSource_.empty() ? heldSource_ : nonOscSource_;
@@ -985,8 +991,14 @@ void UmbralAudioProcessorEditor::layoutSintePage() {
 void UmbralAudioProcessorEditor::updateWaveGraph() {
   float wave = 0.0f;
   float timbre = 0.0f;
-  if (auto* p = processor_.apvts().getRawParameterValue("osc.waveform")) wave = p->load();
-  if (auto* p = processor_.apvts().getRawParameterValue("osc.timbre")) timbre = p->load();
+  if (processor_.isSerialDriving(glow::ParameterID::Waveform))
+    wave = processor_.getParameterTarget(glow::ParameterID::Waveform);
+  else if (auto* p = processor_.apvts().getRawParameterValue("osc.waveform"))
+    wave = p->load();
+  if (processor_.isSerialDriving(glow::ParameterID::SineTimbre))
+    timbre = processor_.getParameterTarget(glow::ParameterID::SineTimbre);
+  else if (auto* p = processor_.apvts().getRawParameterValue("osc.timbre"))
+    timbre = p->load();
   waveGraph_.setShape(wave, timbre);
 }
 
@@ -1324,7 +1336,41 @@ void UmbralAudioProcessorEditor::refreshRouteSources() {
                     listen == glow::SensorListen::Osc, oscLatest);
 }
 
-void UmbralAudioProcessorEditor::setStatus(const juce::String& text, bool isError) {
+void UmbralAudioProcessorEditor::publishOscRoutes() {
+  if (processor_.getSensorListen() != glow::SensorListen::Osc) return;
+  const auto saved = processor_.getSerialConfig().destinations;
+  std::vector<glow::SerialRoute> routes;
+  routes.reserve(destRows_.size());
+  for (size_t i = 0; i < destRows_.size(); ++i) {
+    const auto& row = destRows_[i];
+    glow::SerialDestination dest = glow::SerialDestination::Pitch;
+    glow::serialDestinationFromName(row->parameterBox.getText().toStdString(), dest);
+    glow::SerialRoute route;
+    route.destination = dest;
+    route.min = row->minEdit.getText().trim().getFloatValue();
+    route.max = row->maxEdit.getText().trim().getFloatValue();
+    route.invert = row->invertToggle.getToggleState();
+    route.midiCc = juce::jlimit(0, 127, juce::roundToInt(row->ccSlider.getValue()));
+    route.source = row->selectedSource();
+    float limLo = 0.0f, limHi = 1.0f;
+    glow::serialDestinationLimits(dest, limLo, limHi);
+    const bool emptySpan = !(route.min < route.max) && !(route.max < route.min);
+    const bool rangeOk = !emptySpan && route.min >= limLo && route.min <= limHi && route.max >= limLo &&
+                         route.max <= limHi;
+    if (!rangeOk && i < saved.size() && saved[i].destination == dest) {
+      route.min = saved[i].min;
+      route.max = saved[i].max;
+    }
+    routes.push_back(route);
+  }
+  processor_.installDestinationRoutes(std::move(routes));
+}
+
+void UmbralAudioProcessorEditor::setStatus(const juce::String& text, bool isError, bool fromTimer) {
+  const auto now = juce::Time::currentTimeMillis();
+  if (fromTimer && now < statusHoldUntilMs_) return;
+  if (isError) statusHoldUntilMs_ = now + 2800;
+  else if (!fromTimer) statusHoldUntilMs_ = 0;
   statusLabel_.setColour(juce::Label::textColourId, isError ? juce::Colours::orange : kMuted);
   statusLabel_.setText(text, juce::dontSendNotification);
 }
@@ -1529,7 +1575,7 @@ void UmbralAudioProcessorEditor::timerCallback() {
     if (status.isNotEmpty()) status << "  |  ";
     status << remote;
   }
-  if (status.isNotEmpty()) setStatus(status);
+  if (status.isNotEmpty()) setStatus(status, false, true);
 
   const auto uiRev = processor_.remoteUiRevision();
   if (uiRev != lastRemoteUiRevision_) {
@@ -1559,6 +1605,7 @@ void UmbralAudioProcessorEditor::timerCallback() {
   }
 
   refreshRouteSources();
+  publishOscRoutes();
   syncSlidersFromEngine();
   updateWaveGraph();
   if (debugConsole_.isVisible()) {
