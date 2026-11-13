@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "OscInput.h"
 #include "Presets.h"
 
 #include "audio/Oscillator.h"
@@ -188,10 +189,20 @@ UmbralAudioProcessor::UmbralAudioProcessor()
         if (!life->alive.load()) return;
         refreshSensorDrives();
       });
+
+  oscInput_ = std::make_unique<OscInput>();
+  oscInput_->setHandler([this, life](const juce::String& address, float value) {
+    if (!life->alive.load()) return;
+    handleOsc(address, value);
+  });
 }
 
 UmbralAudioProcessor::~UmbralAudioProcessor() {
   if (life_ != nullptr) life_->alive.store(false);
+  if (oscInput_ != nullptr) {
+    oscInput_->stop();
+    oscInput_.reset();
+  }
   if (sensorWs_ != nullptr) {
     sensorWs_->stop();
     sensorWs_.reset();
@@ -559,7 +570,9 @@ juce::String UmbralAudioProcessor::serialConfigToJson(const glow::SerialConfig& 
     if (i + 1 < cfg.wsKeys.size()) json << ",";
     json << "\n";
   }
-  json << "  ]\n}\n";
+  json << "  ],\n";
+  json << "  \"oscHost\": " << juce::JSON::toString(juce::var(juce::String(cfg.oscHost))) << ",\n";
+  json << "  \"oscPort\": " << cfg.oscPort << "\n}\n";
   return json;
 }
 
@@ -654,7 +667,9 @@ bool UmbralAudioProcessor::routeIsLive(const glow::SerialRoute& route) const {
   if (listen == glow::SensorListen::Serial)
     return serialPitch_.isOpen() && glow::routeReadsSerial(route);
   if (listen == glow::SensorListen::WebSocket)
-    return isWsConnected() && !glow::routeReadsSerial(route);
+    return isWsConnected() && !glow::routeReadsSerial(route) && !glow::routeReadsOsc(route);
+  if (listen == glow::SensorListen::Osc)
+    return isOscListening() && glow::routeReadsOsc(route);
   return false;
 }
 
@@ -671,21 +686,35 @@ bool UmbralAudioProcessor::saveConnectionSettings(glow::SerialConfig incoming, j
       return false;
     }
   }
+  if (incoming.oscPort < 1 || incoming.oscPort > 65535) {
+    statusOut = "El puerto OSC tiene que estar entre 1 y 65535.";
+    return false;
+  }
+  if (incoming.oscHost.empty()) incoming.oscHost = "0.0.0.0";
 
   auto cfg = getSerialConfig();
   const bool portChanged = cfg.port != incoming.port || cfg.baud != incoming.baud;
   const bool urlChanged = cfg.wsUrl != incoming.wsUrl;
+  const bool oscChanged = cfg.oscHost != incoming.oscHost || cfg.oscPort != incoming.oscPort;
   cfg.port = std::move(incoming.port);
   cfg.baud = incoming.baud;
   cfg.inputLow = incoming.inputLow;
   cfg.inputHigh = incoming.inputHigh;
   cfg.wsUrl = std::move(incoming.wsUrl);
   cfg.wsKeys = std::move(incoming.wsKeys);
+  cfg.oscHost = std::move(incoming.oscHost);
+  cfg.oscPort = incoming.oscPort;
 
   const bool reopen = getSensorListen() == glow::SensorListen::Serial && portChanged;
   applySerialConfig(cfg, reopen, statusOut);
   if (getSensorListen() == glow::SensorListen::WebSocket && urlChanged && sensorWs_ != nullptr)
     sensorWs_->setUrl(juce::String(cfg.wsUrl));
+  juce::String oscStatus;
+  if (getSensorListen() == glow::SensorListen::Osc && oscChanged && !bindOsc(oscStatus)) {
+    refreshSensorDrives();
+    statusOut = juce::String::fromUTF8("Config guardada, pero ") + oscStatus;
+    return true;
+  }
   refreshSensorDrives();
   if (reopen && !serialPitch_.isOpen()) {
     statusOut = juce::String::fromUTF8("Config guardada, pero no se pudo abrir el puerto.");
@@ -698,6 +727,7 @@ bool UmbralAudioProcessor::saveConnectionSettings(glow::SerialConfig incoming, j
 bool UmbralAudioProcessor::setSensorListen(glow::SensorListen mode, juce::String& statusOut) {
   if (mode != glow::SensorListen::Serial) serialPitch_.close();
   if (mode != glow::SensorListen::WebSocket && sensorWs_ != nullptr) sensorWs_->setUrl({});
+  if (mode != glow::SensorListen::Osc) stopOsc();
   sensorListen_.store(static_cast<int>(mode));
 
   if (mode == glow::SensorListen::Off) {
@@ -721,6 +751,16 @@ bool UmbralAudioProcessor::setSensorListen(glow::SensorListen mode, juce::String
       refreshSensorDrives();
       return false;
     }
+    return true;
+  }
+
+  if (mode == glow::SensorListen::Osc) {
+    if (!bindOsc(statusOut)) {
+      sensorListen_.store(static_cast<int>(glow::SensorListen::Off));
+      refreshSensorDrives();
+      return false;
+    }
+    refreshSensorDrives();
     return true;
   }
 
@@ -823,6 +863,63 @@ void UmbralAudioProcessor::handleWsValues(const std::vector<std::pair<std::strin
   }
 }
 
+void UmbralAudioProcessor::handleOsc(const juce::String& address, float value) {
+  const auto key = glow::normalizeOscAddress(address.toStdString());
+  if (key.size() < 2) return;
+  {
+    std::lock_guard<std::mutex> lock(oscMutex_);
+    bool known = false;
+    for (auto& slot : oscLatest_) {
+      if (slot.first == key) {
+        slot.second = value;
+        known = true;
+        break;
+      }
+    }
+    if (!known) oscLatest_.emplace_back(key, value);
+    while (oscLatest_.size() > 64) oscLatest_.erase(oscLatest_.begin());
+  }
+  if (serialDebugConsole_.load())
+    appendDebugLine(juce::String(key) + " " + juce::String(value, 3));
+  if (getSensorListen() != glow::SensorListen::Osc) return;
+
+  glow::SerialConfig cfg;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    cfg = serialConfig_;
+  }
+  for (const auto& route : cfg.destinations) {
+    if (route.source != key) continue;
+    serialPitch_.applyRoute(value, 0.0f, 1.0f, route);
+  }
+}
+
+bool UmbralAudioProcessor::bindOsc(juce::String& statusOut) {
+  if (oscInput_ == nullptr) {
+    statusOut = "OSC no disponible.";
+    return false;
+  }
+  const auto cfg = getSerialConfig();
+  return oscInput_->listen(juce::String(cfg.oscHost), cfg.oscPort, statusOut);
+}
+
+void UmbralAudioProcessor::stopOsc() {
+  if (oscInput_ != nullptr) oscInput_->stop();
+}
+
+bool UmbralAudioProcessor::isOscListening() const {
+  return oscInput_ != nullptr && oscInput_->isListening();
+}
+
+juce::String UmbralAudioProcessor::getOscStatus() const {
+  return oscInput_ != nullptr ? oscInput_->status() : juce::String();
+}
+
+std::vector<std::pair<std::string, float>> UmbralAudioProcessor::getOscLatest() const {
+  std::lock_guard<std::mutex> lock(oscMutex_);
+  return oscLatest_;
+}
+
 void UmbralAudioProcessor::setRemoteUrl(const juce::String& url) {
   remoteUrl_ = url.trim();
   if (remoteEnabled_ && remote_ != nullptr) remote_->setUrl(remoteUrl_);
@@ -833,6 +930,16 @@ bool UmbralAudioProcessor::applyConfig(glow::SerialConfig cfg, juce::String& sta
   if (cfg.destinations.size() > static_cast<size_t>(glow::kSerialMaxDestinations)) {
     statusOut = "At most " + juce::String(glow::kSerialMaxDestinations) + " destinations.";
     return false;
+  }
+  if (getSensorListen() == glow::SensorListen::Osc) {
+    for (auto& route : cfg.destinations) {
+      route.source = glow::normalizeOscAddress(route.source);
+      if (route.source.size() < 2) {
+        statusOut = juce::String::fromUTF8(
+            "Cada destino OSC necesita una direcci\xc3\xb3n, por ejemplo /proximidad.");
+        return false;
+      }
+    }
   }
   for (const auto& route : cfg.destinations) {
     float limLo = 0, limHi = 1;
@@ -973,6 +1080,7 @@ bool UmbralAudioProcessor::isSerialPitchLive() const {
   const auto listen = getSensorListen();
   if (listen == glow::SensorListen::Serial) return serialPitch_.isOpen();
   if (listen == glow::SensorListen::WebSocket) return isWsConnected();
+  if (listen == glow::SensorListen::Osc) return isOscListening();
   return false;
 }
 
@@ -1257,11 +1365,8 @@ void UmbralAudioProcessor::applyRemoteCommand(const juce::var& msg) {
   }
   if (type == "listen") {
     const auto mode = msg.getProperty("mode", "off").toString();
-    glow::SensorListen listen = glow::SensorListen::Off;
-    if (mode == "serial") listen = glow::SensorListen::Serial;
-    else if (mode == "websocket" || mode == "ws") listen = glow::SensorListen::WebSocket;
     juce::String status;
-    setSensorListen(listen, status);
+    setSensorListen(glow::sensorListenFromName(mode.toStdString()), status);
     bumpRemoteUi();
     return;
   }
@@ -1358,7 +1463,8 @@ void UmbralAudioProcessor::applyRemoteConfig(const juce::var& config) {
   auto cfg = getSerialConfig();
   const bool touchConnection = config.hasProperty("port") || config.hasProperty("baud") ||
                                config.hasProperty("input") || config.hasProperty("wsUrl") ||
-                               config.hasProperty("wsKeys");
+                               config.hasProperty("wsKeys") || config.hasProperty("oscHost") ||
+                               config.hasProperty("oscPort");
   if (config.hasProperty("input")) {
     cfg.inputLow = parsed.inputLow;
     cfg.inputHigh = parsed.inputHigh;
@@ -1367,6 +1473,8 @@ void UmbralAudioProcessor::applyRemoteConfig(const juce::var& config) {
   if (config.hasProperty("baud")) cfg.baud = parsed.baud;
   if (config.hasProperty("wsUrl")) cfg.wsUrl = parsed.wsUrl;
   if (config.hasProperty("wsKeys")) cfg.wsKeys = parsed.wsKeys;
+  if (config.hasProperty("oscHost")) cfg.oscHost = parsed.oscHost;
+  if (config.hasProperty("oscPort")) cfg.oscPort = parsed.oscPort;
   if (config.hasProperty("destinations")) {
     for (auto& route : parsed.destinations) {
       if (!route.source.empty()) continue;
@@ -1515,9 +1623,7 @@ juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
   state->setProperty("serial", juce::var(serial));
 
   const auto listen = getSensorListen();
-  state->setProperty("sensorListen", listen == glow::SensorListen::WebSocket
-                                         ? "websocket"
-                                         : listen == glow::SensorListen::Serial ? "serial" : "off");
+  state->setProperty("sensorListen", glow::sensorListenName(listen));
   auto* ws = new juce::DynamicObject();
   ws->setProperty("url", juce::String(cfg.wsUrl));
   ws->setProperty("connected", isWsConnected());
@@ -1555,12 +1661,29 @@ juce::String UmbralAudioProcessor::buildRemoteStateJson() const {
   ws->setProperty("latest", latest);
   state->setProperty("ws", juce::var(ws));
 
+  auto* osc = new juce::DynamicObject();
+  osc->setProperty("host", juce::String(cfg.oscHost));
+  osc->setProperty("port", cfg.oscPort);
+  osc->setProperty("listening", isOscListening());
+  osc->setProperty("status", getOscStatus());
+  juce::Array<juce::var> oscLatest;
+  for (const auto& sample : getOscLatest()) {
+    auto* item = new juce::DynamicObject();
+    item->setProperty("address", juce::String(sample.first));
+    item->setProperty("value", sample.second);
+    oscLatest.add(juce::var(item));
+  }
+  osc->setProperty("latest", oscLatest);
+  state->setProperty("osc", juce::var(osc));
+
   auto* config = new juce::DynamicObject();
   config->setProperty("drone", cfg.droneNote);
   config->setProperty("waveform", juce::String(cfg.waveform.value_or("sine")));
   config->setProperty("quantize", juce::String(cfg.quantize.value_or("off")));
   config->setProperty("debug", serialDebugConsole_.load());
   config->setProperty("input", input);
+  config->setProperty("oscHost", juce::String(cfg.oscHost));
+  config->setProperty("oscPort", cfg.oscPort);
   juce::Array<juce::var> destinations;
   for (const auto& route : cfg.destinations) {
     auto* item = new juce::DynamicObject();
@@ -1661,11 +1784,7 @@ void UmbralAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
   state.setProperty("audioEngine", rumor::engineKindName(getAudioEngineKind()), nullptr);
   state.setProperty("remoteUrl", remoteUrl_, nullptr);
   state.setProperty("remoteOn", remoteEnabled_, nullptr);
-  state.setProperty("sensorListen",
-                    getSensorListen() == glow::SensorListen::WebSocket
-                        ? "websocket"
-                        : getSensorListen() == glow::SensorListen::Serial ? "serial" : "off",
-                    nullptr);
+  state.setProperty("sensorListen", glow::sensorListenName(getSensorListen()), nullptr);
   float pxDry = 0.0f;
   getPaulXStretchParameter("px.dry", pxDry);
   state.setProperty("pxDry", pxDry >= 0.5f, nullptr);
@@ -1740,10 +1859,7 @@ void UmbralAudioProcessor::setStateInformation(const void* data, int sizeInBytes
   if (static_cast<bool>(tree.getProperty("remoteOn", false))) connectRemote(remoteUrl_);
 
   if (engineOn_.load() && tree.hasProperty("sensorListen")) {
-    const auto mode = tree.getProperty("sensorListen").toString();
-    glow::SensorListen listen = glow::SensorListen::Off;
-    if (mode == "serial") listen = glow::SensorListen::Serial;
-    else if (mode == "websocket") listen = glow::SensorListen::WebSocket;
+    const auto listen = glow::sensorListenFromName(tree.getProperty("sensorListen").toString().toStdString());
     if (listen != glow::SensorListen::Off) {
       juce::String status;
       setSensorListen(listen, status);

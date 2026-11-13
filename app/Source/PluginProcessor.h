@@ -26,6 +26,8 @@
 #include <utility>
 #include <vector>
 
+class OscInput;
+
 class UmbralAudioProcessor : public juce::AudioProcessor {
  public:
   UmbralAudioProcessor();
@@ -66,12 +68,15 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   juce::String getSerialStatus() const;
   std::vector<juce::String> listSerialPorts() const;
 
-  /** Port, baud, serial window, websocket host, and per-key windows. Does not change listen mode. */
+  /** Port, baud, serial window, websocket host, OSC bind, and per-key windows. Does not change listen mode. */
   bool saveConnectionSettings(glow::SerialConfig incoming, juce::String& statusOut);
   bool setSensorListen(glow::SensorListen mode, juce::String& statusOut);
   glow::SensorListen getSensorListen() const;
   bool isWsConnected() const;
   juce::String getWsStatus() const;
+  bool isOscListening() const;
+  juce::String getOscStatus() const;
+  std::vector<std::pair<std::string, float>> getOscLatest() const;
   std::vector<std::string> getWsSeenKeys() const;
   std::vector<std::pair<std::string, float>> getWsLatest() const;
   juce::String getWsPretty() const;
@@ -176,6 +181,9 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   void applySerialConfig(const glow::SerialConfig& cfg, bool connectSerial, juce::String& statusOut);
   void refreshSensorDrives();
   void handleWsValues(const std::vector<std::pair<std::string, float>>& values, const juce::String& pretty);
+  void handleOsc(const juce::String& address, float value);
+  bool bindOsc(juce::String& statusOut);
+  void stopOsc();
   bool routeIsLive(const glow::SerialRoute& route) const;
   void appendDebugLine(const juce::String& line);
   void appendWsDebug(const juce::String& block);
@@ -262,6 +270,9 @@ class UmbralAudioProcessor : public juce::AudioProcessor {
   juce::String wsPretty_;
   std::atomic<int> sensorListen_{static_cast<int>(glow::SensorListen::Off)};
   std::unique_ptr<SensorWs> sensorWs_;
+  std::unique_ptr<OscInput> oscInput_;
+  mutable std::mutex oscMutex_;
+  std::vector<std::pair<std::string, float>> oscLatest_;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UmbralAudioProcessor)
 };

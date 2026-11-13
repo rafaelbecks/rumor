@@ -176,6 +176,28 @@ TEST_CASE("Serial JSON accepts midi.cc destinations", "[serial]") {
   REQUIRE(cfg.destinations[1].min == Catch::Approx(10.0f));
 }
 
+TEST_CASE("OSC address maps a normalized 0-1 value onto the destination span", "[serial]") {
+  const char* ok = R"({
+    "oscHost": "0.0.0.0",
+    "oscPort": 9000,
+    "destinations": [
+      { "parameter": "filter.cutoff", "source": "/proximidad", "min": 60, "max": 12000 }
+    ]
+  })";
+  glow::SerialConfig cfg;
+  std::string error;
+  REQUIRE(glow::ConfigLoader::parseSerialText(ok, cfg, error));
+  REQUIRE(cfg.oscHost == "0.0.0.0");
+  REQUIRE(cfg.oscPort == 9000);
+  REQUIRE(cfg.destinations.size() == 1);
+  REQUIRE(glow::routeReadsOsc(cfg.destinations[0]));
+  REQUIRE(glow::normalizeOscAddress("proximidad") == "/proximidad");
+  REQUIRE(glow::serialMap(0.0f, 0.0f, 1.0f, 60.0f, 12000.0f) == Catch::Approx(60.0f));
+  REQUIRE(glow::serialMap(1.0f, 0.0f, 1.0f, 60.0f, 12000.0f) == Catch::Approx(12000.0f));
+  REQUIRE(glow::serialMap(0.5f, 0.0f, 1.0f, 60.0f, 12000.0f) == Catch::Approx(6030.0f));
+  REQUIRE(glow::sensorListenFromName("osc") == glow::SensorListen::Osc);
+}
+
 TEST_CASE("Serial pitch quantizes to the active scale", "[serial]") {
   const float between = glow::serialAdcToMidi(511.5f);  // MIDI 66, F#4
   const float major = glow::quantizeMidiToScale(between, 60, glow::ScaleId::Major);

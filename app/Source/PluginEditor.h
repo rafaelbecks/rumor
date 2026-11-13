@@ -49,13 +49,18 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
     void applyDefaultRangeForSelection();
     void setSources(bool showSerial, const std::vector<std::string>& keys, const std::string& selected,
                     const std::vector<std::pair<std::string, float>>& latest, float serialValue,
-                    bool haveSerial);
+                    bool haveSerial, bool oscMode,
+                    const std::vector<std::pair<std::string, float>>& oscLatest);
     std::string selectedSource() const;
 
     std::function<void(DestinationRow*)> onRemove;
     juce::ComboBox sourceBox;
+    juce::TextEditor oscEdit;
+    juce::Label oscReading;
+    bool oscMode_{false};
     std::vector<std::string> sourceIds_;
     std::string heldSource_;
+    std::string nonOscSource_;
     juce::ComboBox parameterBox;
     juce::Label ccLabel;
     juce::Slider ccSlider;
@@ -157,6 +162,7 @@ class UmbralAudioProcessorEditor : public juce::AudioProcessorEditor,
 
   juce::ToggleButton serialListen_;
   juce::ToggleButton wsListen_;
+  juce::ToggleButton oscListen_;
   juce::TextButton configButton_;
   SensorSpine sensorSpine_;
   juce::TextButton applyButton_;

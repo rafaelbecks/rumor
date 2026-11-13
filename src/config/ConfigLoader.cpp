@@ -157,6 +157,22 @@ bool parseSerialObject(const nlohmann::json& j, SerialConfig& out, std::string& 
     }
   }
 
+  if (j.contains("oscHost") && j["oscHost"].is_string()) {
+    out.oscHost = j["oscHost"].get<std::string>();
+    if (out.oscHost.empty()) out.oscHost = "0.0.0.0";
+  }
+  if (j.contains("oscPort")) {
+    if (!j["oscPort"].is_number_integer() && !j["oscPort"].is_number()) {
+      errorOut = "oscPort must be an integer 1-65535";
+      return false;
+    }
+    out.oscPort = j["oscPort"].get<int>();
+    if (out.oscPort < 1 || out.oscPort > 65535) {
+      errorOut = "oscPort must be an integer 1-65535";
+      return false;
+    }
+  }
+
   if (!j.contains("destinations")) return true;
   const auto& destinations = j["destinations"];
   if (!destinations.is_array()) {

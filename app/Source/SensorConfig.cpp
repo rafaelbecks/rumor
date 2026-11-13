@@ -64,14 +64,18 @@ SensorConfigComponent::SensorConfigComponent(UmbralAudioProcessor& processor, ju
       wsTitle_({}, "websocket"),
       hostLabel_({}, "host"),
       keyHint_({}, juce::String::fromUTF8("Las claves aparecen al recibir JSON.")),
+      oscTitle_({}, "osc"),
+      oscHostLabel_({}, "host"),
+      oscPortLabel_({}, "puerto"),
       remoteTitle_({}, "remoto"),
       remoteLabel_({}, "host"),
       remoteButton_("vincular"),
       saveButton_("guardar"),
       closeButton_("cerrar") {
-  for (auto* label : {&serialTitle_, &wsTitle_, &remoteTitle_})
+  for (auto* label : {&serialTitle_, &wsTitle_, &oscTitle_, &remoteTitle_})
     styleLabel(*label, font_.withHeight(14.0f), kAccent);
-  for (auto* label : {&portLabel_, &baudLabel_, &inputLabel_, &hostLabel_, &remoteLabel_, &keyHint_})
+  for (auto* label : {&portLabel_, &baudLabel_, &inputLabel_, &hostLabel_, &oscHostLabel_, &oscPortLabel_,
+                      &remoteLabel_, &keyHint_})
     styleLabel(*label, font_, kMuted);
   keyHint_.setMinimumHorizontalScale(0.7f);
   errorLabel_.setFont(font_.withHeight(12.0f));
@@ -92,6 +96,9 @@ SensorConfigComponent::SensorConfigComponent(UmbralAudioProcessor& processor, ju
   addAndMakeVisible(inputLabel_);
   addAndMakeVisible(wsTitle_);
   addAndMakeVisible(hostLabel_);
+  addAndMakeVisible(oscTitle_);
+  addAndMakeVisible(oscHostLabel_);
+  addAndMakeVisible(oscPortLabel_);
   addAndMakeVisible(remoteTitle_);
   addAndMakeVisible(remoteLabel_);
   addAndMakeVisible(errorLabel_);
@@ -114,6 +121,13 @@ SensorConfigComponent::SensorConfigComponent(UmbralAudioProcessor& processor, ju
   hostEdit_.setText(juce::String(cfg.wsUrl), false);
   addAndMakeVisible(hostEdit_);
   addAndMakeVisible(keyHint_);
+
+  styleEditor(oscHostEdit_, "0.0.0.0");
+  oscHostEdit_.setText(juce::String(cfg.oscHost.empty() ? "0.0.0.0" : cfg.oscHost), false);
+  addAndMakeVisible(oscHostEdit_);
+  styleEditor(oscPortEdit_, "9000");
+  oscPortEdit_.setText(juce::String(cfg.oscPort), false);
+  addAndMakeVisible(oscPortEdit_);
 
   styleEditor(remoteEdit_, "https://rumor-remote.onrender.com");
   remoteEdit_.setText(processor_.getRemoteUrl(), false);
@@ -151,6 +165,7 @@ void SensorConfigComponent::paint(juce::Graphics& g) {
   auto line = [this, &g](int y) { g.drawHorizontalLine(y, 16.0f, static_cast<float>(getWidth() - 16)); };
   line(serialTitle_.getBottom() + 2);
   line(wsTitle_.getBottom() + 2);
+  line(oscTitle_.getBottom() + 2);
   line(remoteTitle_.getBottom() + 2);
 }
 
@@ -272,6 +287,19 @@ bool SensorConfigComponent::collect(juce::String& error) {
     cfg.wsKeys.push_back(std::move(input));
   }
 
+  cfg.oscHost = oscHostEdit_.getText().trim().toStdString();
+  if (cfg.oscHost.empty()) cfg.oscHost = "0.0.0.0";
+  const auto portText = oscPortEdit_.getText().trim();
+  if (portText.isEmpty() || !portText.containsOnly("0123456789")) {
+    error = U8("El puerto OSC tiene que estar entre 1 y 65535.");
+    return false;
+  }
+  cfg.oscPort = portText.getIntValue();
+  if (cfg.oscPort < 1 || cfg.oscPort > 65535) {
+    error = U8("El puerto OSC tiene que estar entre 1 y 65535.");
+    return false;
+  }
+
   juce::String status;
   if (!processor_.saveConnectionSettings(cfg, status)) {
     error = status;
@@ -371,7 +399,7 @@ void SensorConfigComponent::resized() {
   hostLabel_.setBounds(host.removeFromLeft(52));
   hostEdit_.setBounds(host);
   area.removeFromTop(6);
-  const int keysH = juce::jlimit(88, 220, 28 + static_cast<int>(keyRows_.size()) * 28);
+  const int keysH = juce::jlimit(72, 160, 28 + static_cast<int>(keyRows_.size()) * 28);
   keyHint_.setVisible(keyRows_.empty());
   keyHint_.setBounds(keyRows_.empty() ? area.removeFromTop(32) : juce::Rectangle<int>());
   keyViewport_.setVisible(!keyRows_.empty());
@@ -383,6 +411,16 @@ void SensorConfigComponent::resized() {
     y += 28;
   }
   keyList_.setSize(w, juce::jmax(y, keyViewport_.getHeight()));
+  area.removeFromTop(16);
+
+  oscTitle_.setBounds(area.removeFromTop(22));
+  area.removeFromTop(8);
+  auto osc = area.removeFromTop(26);
+  oscHostLabel_.setBounds(osc.removeFromLeft(52));
+  oscPortLabel_.setBounds(osc.removeFromRight(52));
+  oscPortEdit_.setBounds(osc.removeFromRight(72));
+  osc.removeFromRight(8);
+  oscHostEdit_.setBounds(osc);
   area.removeFromTop(16);
 
   remoteTitle_.setBounds(area.removeFromTop(22));

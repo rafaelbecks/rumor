@@ -6,7 +6,7 @@
 
 class UmbralAudioProcessor;
 
-/** Modal sections for serial, websocket keys, and the remote host. */
+/** Modal sections for serial, websocket keys, OSC, and the remote host. */
 class SensorConfigComponent : public juce::Component, private juce::Button::Listener, private juce::Timer {
  public:
   SensorConfigComponent(UmbralAudioProcessor& processor, juce::Font font, std::function<void()> onSaved);
@@ -57,6 +57,12 @@ class SensorConfigComponent : public juce::Component, private juce::Button::List
   juce::Component keyList_;
   std::vector<std::unique_ptr<KeyRow>> keyRows_;
   juce::String keySignature_;
+
+  juce::Label oscTitle_;
+  juce::Label oscHostLabel_;
+  juce::TextEditor oscHostEdit_;
+  juce::Label oscPortLabel_;
+  juce::TextEditor oscPortEdit_;
 
   juce::Label remoteTitle_;
   juce::Label remoteLabel_;

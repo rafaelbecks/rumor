@@ -212,6 +212,7 @@ function build() {
       <div class="listen">
         <label class="check"><input id="listenSerial" type="checkbox">serial</label>
         <label class="check"><input id="listenWs" type="checkbox">websocket</label>
+        <label class="check"><input id="listenOsc" type="checkbox">osc</label>
         <button type="button" id="openConfig">config</button>
         <label class="check"><input id="debugOn" type="checkbox">debug</label>
       </div>
@@ -241,6 +242,9 @@ function build() {
       <div class="row"><label>host</label><input id="wsUrl" placeholder="ws://host:port/path" autocomplete="off"></div>
       <div id="wsKeys"></div>
       <p class="hint" id="wsHint">Las claves aparecen al recibir JSON.</p>
+      <h2>osc</h2>
+      <div class="row"><label>host</label><input id="oscHost" placeholder="0.0.0.0" autocomplete="off"><label>puerto</label><input id="oscPort" type="number" min="1" max="65535" inputmode="numeric" placeholder="9000"></div>
+      <p class="hint">Valores normalizados de 0 a 1. El origen de cada destino es la dirección, por ejemplo /proximidad.</p>
       <div class="row actions">
         <button type="button" id="closeConfig">cerrar</button>
         <button type="button" class="primary" id="saveConfig">guardar</button>
@@ -309,6 +313,7 @@ function bindStatic() {
   $("debugOn").onchange = () => cmd({ t: "debug", on: $("debugOn").checked });
   $("listenSerial").onchange = () => setListen($("listenSerial").checked ? "serial" : "off");
   $("listenWs").onchange = () => setListen($("listenWs").checked ? "websocket" : "off");
+  $("listenOsc").onchange = () => setListen($("listenOsc").checked ? "osc" : "off");
   $("openConfig").onclick = () => {
     const dialog = $("sensorConfig");
     if (dialog.parentElement !== document.body) document.body.appendChild(dialog);
@@ -389,7 +394,14 @@ function bindStatic() {
 function setListen(mode) {
   $("listenSerial").checked = mode === "serial";
   $("listenWs").checked = mode === "websocket";
+  $("listenOsc").checked = mode === "osc";
   cmd({ t: "listen", mode });
+}
+
+function oscAddress(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
 function formatReading(value) {
@@ -447,6 +459,11 @@ function saveSensorConfig() {
       return;
     }
   }
+  const oscPort = Number($("oscPort").value);
+  if (!Number.isInteger(oscPort) || oscPort < 1 || oscPort > 65535) {
+    error.textContent = "El puerto OSC tiene que estar entre 1 y 65535.";
+    return;
+  }
   error.textContent = "";
   cmd({
     t: "setConfig",
@@ -456,6 +473,8 @@ function saveSensorConfig() {
       input: [lo, hi],
       wsUrl: $("wsUrl").value.trim(),
       wsKeys,
+      oscHost: $("oscHost").value.trim() || "0.0.0.0",
+      oscPort,
     },
   });
   $("sensorConfig").close();
@@ -480,6 +499,7 @@ function addDestRow(route) {
   row.className = "dest";
   row.innerHTML = `
     <select class="sourceSel"></select>
+    <input class="oscAddr" placeholder="/parametro" value="${esc(route.source || "")}" hidden>
     <select class="paramSel">${destOptions(route.parameter)}</select>
     <input class="cc" type="number" min="0" max="127" value="${route.cc ?? 1}" inputmode="numeric">
     <input class="min" type="number" step="any" value="${route.min ?? 0}">
@@ -512,7 +532,10 @@ function readDests() {
       max: Number(row.querySelector(".max").value),
       invert: row.querySelector(".inv").checked,
     };
-    const source = row.querySelector(".sourceSel").dataset.source || "";
+    const osc = (ui.state?.sensorListen || "off") === "osc";
+    const source = osc
+      ? oscAddress(row.querySelector(".oscAddr").value)
+      : (row.querySelector(".sourceSel").dataset.source || "");
     if (source) route.source = source;
     if (parameter === "midi.cc") route.cc = Number(row.querySelector(".cc").value);
     return route;
@@ -589,8 +612,20 @@ function paintPitches(state, locked) {
 }
 
 function paintSources(state) {
+  const osc = (state.sensorListen || "off") === "osc";
   const choices = originChoices(state);
-  document.querySelectorAll("#dests .sourceSel").forEach((select) => {
+  const latest = new Map((state.osc?.latest || []).map((item) => [item.address, item.value]));
+  document.querySelectorAll("#dests .dest").forEach((row) => {
+    const select = row.querySelector(".sourceSel");
+    const addr = row.querySelector(".oscAddr");
+    if (!select || !addr) return;
+    select.hidden = osc;
+    addr.hidden = !osc;
+    if (osc) {
+      const reading = latest.get(oscAddress(addr.value));
+      addr.title = reading == null ? "" : formatReading(reading);
+      return;
+    }
     fillSelect(select, choices, select.dataset.source || "");
     const chosen = select.dataset.source || "";
     if (![...select.options].some((option) => option.value === chosen)) select.selectedIndex = -1;
@@ -646,6 +681,9 @@ function paint() {
     if (document.activeElement !== $("inLo")) $("inLo").value = input[0];
     if (document.activeElement !== $("inHi")) $("inHi").value = input[1];
     if (document.activeElement !== $("wsUrl")) $("wsUrl").value = ws.url || "";
+    const osc = state.osc || {};
+    if (document.activeElement !== $("oscHost")) $("oscHost").value = osc.host || config.oscHost || "0.0.0.0";
+    if (document.activeElement !== $("oscPort")) $("oscPort").value = osc.port || config.oscPort || 9000;
   }
   paintWsKeys(state);
 
@@ -659,21 +697,27 @@ function paint() {
     }
   }
   paintSources(state);
-  if (document.activeElement !== $("listenSerial") && document.activeElement !== $("listenWs")) {
+  if (document.activeElement !== $("listenSerial") && document.activeElement !== $("listenWs") && document.activeElement !== $("listenOsc")) {
     $("listenSerial").checked = state.sensorListen === "serial";
     $("listenWs").checked = state.sensorListen === "websocket";
+    $("listenOsc").checked = state.sensorListen === "osc";
   }
   if (document.activeElement !== $("debugOn")) $("debugOn").checked = !!state.debug;
   $("debugCard").hidden = !$("debugOn").checked && !state.debug;
   document.querySelectorAll("#dests .dest").forEach((row) => {
     const live = row.querySelector(".live");
-    const source = row.querySelector(".sourceSel").dataset.source || "";
-    const keyWindow = source ? (ws.keys || []).find((key) => key.key === source) : null;
-    const raw = source
-      ? (ws.latest || []).find((item) => item.key === source)?.value
-      : Number(serial.smoothed);
-    const lo = source ? Number(keyWindow?.low ?? 0) : Number(input[0]);
-    const hi = source ? Number(keyWindow?.high ?? 1) : Number(input[1]);
+    const oscMode = (state.sensorListen || "off") === "osc";
+    const source = oscMode
+      ? oscAddress(row.querySelector(".oscAddr")?.value)
+      : (row.querySelector(".sourceSel").dataset.source || "");
+    const keyWindow = !oscMode && source ? (ws.keys || []).find((key) => key.key === source) : null;
+    const raw = oscMode
+      ? (state.osc?.latest || []).find((item) => item.address === source)?.value
+      : source
+        ? (ws.latest || []).find((item) => item.key === source)?.value
+        : Number(serial.smoothed);
+    const lo = oscMode ? 0 : source ? Number(keyWindow?.low ?? 0) : Number(input[0]);
+    const hi = oscMode ? 1 : source ? Number(keyWindow?.high ?? 1) : Number(input[1]);
     if (raw == null || Number(raw) < 0 && !source) {
       live.textContent = "";
       return;
@@ -686,7 +730,9 @@ function paint() {
     ? `${serial.port} @ ${serial.baud} · raw ${serial.raw} · ${Number(serial.smoothed).toFixed(1)}`
     : listen === "websocket"
       ? (ws.status || (ws.connected ? "websocket: en vivo" : "websocket"))
-      : "sensor en pausa";
+      : listen === "osc"
+        ? (state.osc?.status || "osc")
+        : "sensor en pausa";
 
   paintToggle($("engine"), !!state.engineOn, state.engineOn ? "stop" : "start");
   paintToggle($("granular"), !!state.granular, "sinte");

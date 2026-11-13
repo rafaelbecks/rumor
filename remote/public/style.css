@@ -243,7 +243,7 @@ select:disabled {
 }
 
 .dest select { flex: 1 1 120px; }
-.dest .sourceSel { flex: 1.4 1 150px; }
+.dest .sourceSel, .dest .oscAddr { flex: 1.4 1 150px; }
 
 dialog {
   width: min(520px, calc(100vw - 24px));

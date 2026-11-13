@@ -133,6 +133,7 @@ if(RUMOR_BUILD_PLUGIN)
       app/Source/RemoteLink.cpp
       app/Source/RemoteTls.cpp
       app/Source/SensorWs.cpp
+      app/Source/OscInput.cpp
       app/Source/SensorConfig.cpp
       app/Source/PaulXStretchPanel.cpp
       app/Source/Presets.cpp
@@ -149,7 +150,7 @@ if(RUMOR_BUILD_PLUGIN)
       RUMOR_HAS_PAULXSTRETCH=$<BOOL:${RUMOR_WITH_PAULXSTRETCH}>
   )
 
-  set(RUMOR_PLUGIN_LIBS rumor_core juce::juce_audio_utils RumorAssets)
+  set(RUMOR_PLUGIN_LIBS rumor_core juce::juce_audio_utils juce::juce_osc RumorAssets)
   if(RUMOR_WITH_PAULXSTRETCH)
     list(APPEND RUMOR_PLUGIN_LIBS rumor_px_engine)
   endif()

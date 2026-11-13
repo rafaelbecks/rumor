@@ -292,15 +292,49 @@ struct SerialRoute {
   float max{1.0f};
   bool invert{false};  // swap min/max mapping (high input → min)
   int midiCc{1};       // 0–127 when destination == MidiCc
-  std::string source;  // empty or "serial" = ADC; otherwise a websocket JSON key
+  std::string source;  // empty or "serial" = ADC; "/address" = OSC; otherwise a websocket JSON key
 };
 
-/** Empty source and "serial" both read the USB ADC. Any other string is a websocket key. */
+/** Empty source and "serial" both read the USB ADC. A leading slash is an OSC address. */
 inline bool routeReadsSerial(const SerialRoute& route) {
   return route.source.empty() || route.source == "serial";
 }
 
-enum class SensorListen { Off = 0, Serial = 1, WebSocket = 2 };
+/** OSC addresses are stored with a leading slash, for example "/proximidad". */
+inline bool routeReadsOsc(const SerialRoute& route) {
+  return !route.source.empty() && route.source.front() == '/';
+}
+
+/** Trim and ensure a leading slash. Empty input stays empty. */
+inline std::string normalizeOscAddress(std::string_view raw) {
+  while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t')) raw.remove_prefix(1);
+  while (!raw.empty() && (raw.back() == ' ' || raw.back() == '\t')) raw.remove_suffix(1);
+  if (raw.empty()) return {};
+  std::string out;
+  out.reserve(raw.size() + 1);
+  if (raw.front() != '/') out.push_back('/');
+  out.append(raw.data(), raw.size());
+  return out;
+}
+
+enum class SensorListen { Off = 0, Serial = 1, WebSocket = 2, Osc = 3 };
+
+inline const char* sensorListenName(SensorListen mode) {
+  switch (mode) {
+    case SensorListen::Serial: return "serial";
+    case SensorListen::WebSocket: return "websocket";
+    case SensorListen::Osc: return "osc";
+    case SensorListen::Off: break;
+  }
+  return "off";
+}
+
+inline SensorListen sensorListenFromName(std::string_view name) {
+  if (name == "serial") return SensorListen::Serial;
+  if (name == "websocket" || name == "ws") return SensorListen::WebSocket;
+  if (name == "osc") return SensorListen::Osc;
+  return SensorListen::Off;
+}
 
 /** One numeric JSON key the websocket sensor can map, with its own input window. */
 struct WsInput {
@@ -331,6 +365,9 @@ struct SerialConfig {
   std::vector<SerialRoute> destinations;
   std::string wsUrl;
   std::vector<WsInput> wsKeys;
+  /** UDP bind address. 0.0.0.0 listens on every interface. */
+  std::string oscHost{"0.0.0.0"};
+  int oscPort{9000};
 };
 
 /** Legal output span for each destination. */
