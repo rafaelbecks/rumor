@@ -1,0 +1,41 @@
+{
+  "camera": {
+    "device_id": 0,
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "flip_horizontal": false
+  },
+  "tracking": {
+    "min_blob_area": 800,
+    "max_blob_area": 45000,
+    "bg_learning_rate": 0.005,
+    "bg_threshold": 32,
+    "ignore_center_mask_radius": 35
+  },
+  "radial_zone": {
+    "center_x": 320,
+    "center_y": 240,
+    "r_min": 40,
+    "r_max": 220
+  },
+  "response_curve": {
+    "type": "exponential",
+    "exponent": 2.5,
+    "ema_alpha": 0.18
+  },
+  "osc": {
+    "targets": [
+      {
+        "name": "audio_engine",
+        "ip": "127.0.0.1",
+        "port": 8000
+      },
+      {
+        "name": "video_engine",
+        "ip": "192.168.1.100",
+        "port": 7000
+      }
+    ]
+  }
+}

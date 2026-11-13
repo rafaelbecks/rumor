@@ -1,0 +1,7 @@
+# Dependencias compatibles con Raspberry Pi OS 64-bit (ARM64 / Debian Bookworm & Bullseye)
+numpy>=1.24.0,<2.0.0
+opencv-python>=4.8.0.76
+# Tasks API. mp.solutions was removed in mediapipe 0.10.31.
+mediapipe>=0.10.14
+python-osc>=1.8.3
+PyYAML>=6.0.1

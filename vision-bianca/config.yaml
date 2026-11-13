@@ -1,0 +1,34 @@
+camera:
+  device_id: 0
+  width: 640
+  height: 480
+  fps: 30
+  flip_horizontal: false
+
+tracking:
+  mode: "hybrid" # Opciones: "blob", "mediapipe", "hybrid"
+  min_blob_area: 800
+  max_blob_area: 45000
+  bg_history: 500
+  bg_var_threshold: 25
+  ignore_center_mask_radius: 35
+
+radial_zone:
+  center_x: 320
+  center_y: 240
+  r_min: 40
+  r_max: 220
+
+response_curve:
+  type: "exponential" # Opciones: "linear", "exponential", "sigmoid", "ease_in_out"
+  exponent: 2.5
+  ema_alpha: 0.18
+
+osc:
+  targets:
+    - name: "audio_engine"
+      ip: "127.0.0.1"
+      port: 8000
+    - name: "video_engine"
+      ip: "192.168.1.100"
+      port: 7000
