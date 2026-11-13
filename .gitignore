@@ -13,5 +13,6 @@ deps/JUCE/
 *.app
 *.exe
 releases/
-dist/
+dist/*
+!dist/RUMOR-linux-aarch64.zip
 remote/node_modules/
