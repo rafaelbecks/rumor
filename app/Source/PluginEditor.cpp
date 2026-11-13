@@ -349,7 +349,13 @@ UmbralAudioProcessorEditor::DestinationRow::DestinationRow()
   sourceBox.setColour(juce::ComboBox::textColourId, kText);
   sourceBox.setColour(juce::ComboBox::arrowColourId, kMuted);
   addAndMakeVisible(sourceBox);
-  setupCompactEdit(oscEdit, "/parametro");
+  oscEdit.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0x14ffffff));
+  oscEdit.setColour(juce::TextEditor::textColourId, kText);
+  oscEdit.setColour(juce::TextEditor::outlineColourId, kGlassStroke);
+  oscEdit.setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.55f));
+  oscEdit.setColour(juce::TextEditor::highlightedTextColourId, kText);
+  oscEdit.setJustification(juce::Justification::centredLeft);
+  oscEdit.setTextToShowWhenEmpty("/parametro", kMuted);
   oscEdit.setVisible(false);
   addAndMakeVisible(oscEdit);
   oscReading.setJustificationType(juce::Justification::centredRight);
