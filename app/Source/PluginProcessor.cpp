@@ -80,7 +80,7 @@ UmbralAudioProcessor::createParameterLayout() {
   // Per-engine route into physical L/R (level + balance).
   params.push_back(std::make_unique<juce::AudioParameterFloat>(
       juce::ParameterID{"route.gran.level", 1}, "Sinte Level",
-      juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
+      juce::NormalisableRange<float>(0.0f, rumor::OutputRouter::kGranLevelMax, 0.01f), 1.0f));
   params.push_back(std::make_unique<juce::AudioParameterFloat>(
       juce::ParameterID{"route.gran.balance", 1}, "Sinte Balance",
       juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.0f));
@@ -145,7 +145,7 @@ UmbralAudioProcessor::UmbralAudioProcessor()
     const juce::String key{id.data(), id.size()};
     if (key == "route.gran.level" || key == "route.px.level") {
       if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(apvts_.getParameter(key)))
-        ranged->setValueNotifyingHost(ranged->convertTo0to1(juce::jlimit(0.0f, 1.0f, value)));
+        ranged->setValueNotifyingHost(ranged->convertTo0to1(value));
       return;
     }
 #if RUMOR_HAS_PAULXSTRETCH
@@ -1583,7 +1583,7 @@ juce::String UmbralAudioProcessor::buildRemoteHelloJson() const {
       {"out.gainR", "r dayton", 0.0f, 1.0f, false},
       {"out.swap", "swap l/r", 0.0f, 1.0f, true},
       {"out.monoSum", "mono", 0.0f, 1.0f, true},
-      {"route.gran.level", "sinte nivel", 0.0f, 1.0f, false},
+      {"route.gran.level", "sinte nivel", 0.0f, rumor::OutputRouter::kGranLevelMax, false},
       {"route.gran.balance", "sinte l/r", -1.0f, 1.0f, false},
       {"route.px.level", "px nivel", 0.0f, 1.0f, false},
       {"route.px.balance", "px l/r", -1.0f, 1.0f, false},

@@ -833,7 +833,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
   outPanel_.addAndMakeVisible(soloRButton_);
   outPanel_.addAndMakeVisible(bothOutButton_);
 
-  setupCompactSlider(granLevelSlider_, 0.0, 1.0, 0.001);
+  setupCompactSlider(granLevelSlider_, 0.0, rumor::OutputRouter::kGranLevelMax, 0.01);
   setupCompactSlider(granBalSlider_, -1.0, 1.0, 0.001);
   setupCompactSlider(pxLevelSlider_, 0.0, 1.0, 0.001);
   setupCompactSlider(pxBalSlider_, -1.0, 1.0, 0.001);
@@ -843,6 +843,7 @@ UmbralAudioProcessorEditor::UmbralAudioProcessorEditor(UmbralAudioProcessor& p)
 
   granLevelAttach_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
       processor_.apvts(), "route.gran.level", granLevelSlider_);
+  granLevelSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 52, 16);
   granBalAttach_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
       processor_.apvts(), "route.gran.balance", granBalSlider_);
   pxLevelAttach_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(

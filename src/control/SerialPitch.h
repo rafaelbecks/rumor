@@ -379,10 +379,13 @@ inline void serialDestinationLimits(SerialDestination destination, float& minimu
     case SerialDestination::FolderDrive:
     case SerialDestination::FolderMix:
     case SerialDestination::SineTimbre:
-    case SerialDestination::GranLevel:
     case SerialDestination::PxLevel:
       minimum = 0.0f;
       maximum = 1.0f;
+      return;
+    case SerialDestination::GranLevel:
+      minimum = 0.0f;
+      maximum = 4.0f;
       return;
     case SerialDestination::FilterResonance:
       minimum = 0.0f;
@@ -511,10 +514,13 @@ inline void serialDestinationDefaultRange(SerialDestination destination, float& 
     case SerialDestination::FolderDrive:
     case SerialDestination::FolderMix:
     case SerialDestination::SineTimbre:
-    case SerialDestination::GranLevel:
     case SerialDestination::PxLevel:
       low = 0.0f;
       high = 1.0f;
+      return;
+    case SerialDestination::GranLevel:
+      low = 0.0f;
+      high = 4.0f;
       return;
     case SerialDestination::Count:
       break;

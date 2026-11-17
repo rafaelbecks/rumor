@@ -25,7 +25,10 @@ class OutputRouter {
   void setMonoSum(bool m) { monoSum_.store(m); }
   bool monoSum() const { return monoSum_.load(); }
 
-  void setGranLevel(float v) { granLevel_.store(clamp(v, 0.0f, 1.0f)); }
+  /** Unity is 1. The sinte bus can be pushed to 4×; PaulXStretch stays at 1. */
+  static constexpr float kGranLevelMax = 4.0f;
+
+  void setGranLevel(float v) { granLevel_.store(clamp(v, 0.0f, kGranLevelMax)); }
   void setGranBalance(float v) { granBalance_.store(clamp(v, -1.0f, 1.0f)); }
   void setPxLevel(float v) { pxLevel_.store(clamp(v, 0.0f, 1.0f)); }
   void setPxBalance(float v) { pxBalance_.store(clamp(v, -1.0f, 1.0f)); }
